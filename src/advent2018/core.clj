@@ -234,3 +234,150 @@ wvxyz
   (day3-2 (io/resource
            "day3.txt")) ;; 894
   )
+
+
+(defn sleep-minutes [in]
+  (let [notes (xio/lines-in (string-in in))
+        recs (into []
+                   (map (fn [line]
+                          (let [[_all year month day hour minute note :as all] (re-find #"\[(\d+)-(\d+)-(\d+) (\d+):(\d+)\] (.+)" line)
+                                [year month day hour minute] (map #(Long/parseLong %) [year month day hour minute])
+                                note (cond
+                                       (= note "wakes up")
+                                       {:action :wakes-up}
+                                       (= note "falls asleep")
+                                       {:action :falls-asleep}
+                                       :else
+                                       (let [guard-id (->> (re-find #"Guard #(\d+) begins shift" note)
+                                                           second
+                                                           Long/parseLong)]
+                                         {:id guard-id}))]
+                            [[year month day hour minute] note]
+                            )))
+                   notes)
+        recs (sort-by first compare recs)
+        add-guard-to-lines (keep (let [last-id (volatile! nil)]
+                                   (fn [[date {:keys [action id]}]]
+                                     (if id
+                                       (do (vreset! last-id id)
+                                           nil)
+                                       [date {:action action
+                                              :id @last-id}]))))
+
+        recs (into {}
+                   (comp add-guard-to-lines
+                         (x/partition 2 2)
+                         (map (fn [[[date-sleep {action-sleep :action
+                                                 id-sleep :id} :as sleep]
+                                    [date-awake {action-awake :action
+                                                 id-awake :id} :as awake]]]
+                                (assert (= id-sleep id-awake))
+                                (let [[year-sleep month-sleep day-sleep hour-sleep min-sleep] date-sleep
+                                      [year-awake month-awake day-awake hour-awake min-awake] date-awake
+                                      _ (assert (= [year-sleep month-sleep day-sleep hour-sleep]
+                                                   [year-awake month-awake day-awake hour-awake]))
+                                      sleep-minutes (for [m (range min-sleep min-awake)]
+                                                      [year-sleep month-sleep day-sleep hour-sleep m])]
+                                  {:id id-sleep
+                                   :sleep-minutes sleep-minutes})))
+                         (x/by-key :id
+                                   :sleep-minutes
+                                   (comp cat
+                                         (x/into []))))
+                   recs)]
+    recs))
+
+(defn day4-1 [in]
+  (let [recs (sleep-minutes in)
+        [id sleep-minutes] (apply max-key (comp count val) recs)
+        most-sleep (->> sleep-minutes
+                        (map (fn [[year month day hour minute]]
+                               minute))
+                        frequencies
+                        (apply max-key val)
+                        first)
+        result (* id most-sleep)]
+    result
+    ))
+
+(test/deftest day4-1-test
+  (let [in "[1518-11-01 00:00] Guard #10 begins shift
+[1518-11-01 00:05] falls asleep
+[1518-11-01 00:25] wakes up
+[1518-11-01 00:30] falls asleep
+[1518-11-01 00:55] wakes up
+[1518-11-01 23:58] Guard #99 begins shift
+[1518-11-02 00:40] falls asleep
+[1518-11-02 00:50] wakes up
+[1518-11-03 00:05] Guard #10 begins shift
+[1518-11-03 00:24] falls asleep
+[1518-11-03 00:29] wakes up
+[1518-11-04 00:02] Guard #99 begins shift
+[1518-11-04 00:36] falls asleep
+[1518-11-04 00:46] wakes up
+[1518-11-05 00:03] Guard #99 begins shift
+[1518-11-05 00:45] falls asleep
+[1518-11-05 00:55] wakes up"
+        shuffled (->> in
+                      (str/split-lines)
+                      shuffle)
+        s (str/join "\n" shuffled)]
+    (test/is (= (day4-1 s)
+                (* 10 24)))))
+
+
+(defn day4-2 [in]
+  (let [recs (sleep-minutes in)
+        per-guard (for [[id sleep-minutes] recs]
+                    (let [[min-most freq-most] (->> sleep-minutes
+                                                    (map (fn [[year month day hour minute]]
+                                                           minute))
+                                                    frequencies
+                                                    (apply max-key val))]
+                      [id min-most freq-most]))
+
+        [most-id most-min freq-most] (apply max-key last per-guard)
+        result (* most-id most-min)]
+    result
+    ))
+
+(test/deftest day4-2-test
+  (let [in "[1518-11-01 00:00] Guard #10 begins shift
+[1518-11-01 00:05] falls asleep
+[1518-11-01 00:25] wakes up
+[1518-11-01 00:30] falls asleep
+[1518-11-01 00:55] wakes up
+[1518-11-01 23:58] Guard #99 begins shift
+[1518-11-02 00:40] falls asleep
+[1518-11-02 00:50] wakes up
+[1518-11-03 00:05] Guard #10 begins shift
+[1518-11-03 00:24] falls asleep
+[1518-11-03 00:29] wakes up
+[1518-11-04 00:02] Guard #99 begins shift
+[1518-11-04 00:36] falls asleep
+[1518-11-04 00:46] wakes up
+[1518-11-05 00:03] Guard #99 begins shift
+[1518-11-05 00:45] falls asleep
+[1518-11-05 00:55] wakes up"
+        shuffled (->> in
+                      (str/split-lines)
+                      shuffle)
+        s (str/join "\n" shuffled)]
+    (test/is (= (day4-2 s)
+                (* 99 45)))))
+
+
+(comment
+  (let [line "[1518-11-01 00:05] falls asleep"]
+    (re-find
+     #"\[(\d+)-(\d+)-(\d+) (\d+):(\d+)\] (.+)"
+     line))
+  (day4-1-test)
+
+  (day4-1 (io/resource "day4.txt"))
+
+  (day4-2-test)
+
+  (day4-2 (io/resource "day4.txt"))
+
+)
