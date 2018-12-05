@@ -4,7 +4,8 @@
             [clojure.edn :as edn]
             [clojure.test :as test]
             [net.cgrand.xforms :as x]
-            [net.cgrand.xforms.io :as xio]))
+            [net.cgrand.xforms.io :as xio]
+            [net.cgrand.xforms.rfs :as xrf]))
 
 (defn day1-1 []
   (let [in (io/resource "day1.edn")
@@ -382,7 +383,9 @@ wvxyz
 
 )
 
-(defn match-opposite-case [l r]
+(set! *warn-on-reflection* true)
+
+(defn match-opposite-case [^Character l ^Character r]
   (or (and (Character/isLowerCase l)
            (Character/isUpperCase r)
            (= l (Character/toLowerCase r)))
@@ -430,7 +433,7 @@ wvxyz
         streams (zipmap candidates
                         (map
                          (fn [filter-char]
-                           (comp (remove #{filter-char (Character/toUpperCase filter-char)})
+                           (comp (remove #{filter-char (Character/toUpperCase ^Character filter-char)})
                                  (x/reduce (completing rf) [])
                                  (map count)))
                          candidates))]
@@ -445,12 +448,46 @@ wvxyz
    (= (day5-2 "dabAcCaCBAcCcaDA")
       4)))
 
+(defn day5-2-alt [in]
+  (let [candidates (mapv char (range (int \a) (inc (int \z))))
+        rf (fn [pre c]
+             (let [end (peek pre)]
+               (if (= c \newline)
+                 pre
+                 (if (and end
+                          (match-opposite-case end c))
+                   (pop pre)
+                   (conj pre c)))))
+        streams (transduce
+                 (map
+                  (fn [filter-char]
+                    (x/some
+                     (comp (remove #{filter-char (Character/toUpperCase ^Character filter-char)})
+                           (x/reduce (completing rf) [])
+                           (map count))
+                     in)))
+                 xrf/min
+                 candidates)]
+    streams))
+
 (comment
   (day5-1-test)
   (-> (day5-1 (slurp (io/resource "day5.txt")))
-      count) ;;11108
+      count)
 
   (time (day5-2 (slurp (io/resource "day5.txt"))))5094
+
+  (let [in (slurp (io/resource "day5.txt"))]
+    (time (day5-2 in)))
+  (let [in (slurp (io/resource "day5.txt"))]
+    (time
+     (day5-2-alt in)))
+
+  (require '[clj-async-profiler.core :as prof])
+
+  (let [in (slurp (io/resource "day5.txt"))]
+    (prof/profile (day5-2 in)))
+  (prof/profile (dotimes [i 10000] (reduce + (range i))))
   
   (def r *1)
   (->> r
