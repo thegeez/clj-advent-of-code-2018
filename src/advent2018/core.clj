@@ -381,3 +381,93 @@ wvxyz
   (day4-2 (io/resource "day4.txt"))
 
 )
+
+(defn match-opposite-case [l r]
+  (or (and (Character/isLowerCase l)
+           (Character/isUpperCase r)
+           (= l (Character/toLowerCase r)))
+      (and (Character/isLowerCase r)
+           (Character/isUpperCase l)
+           (= r (Character/toLowerCase l)))))
+
+(defn day5-1 [in]
+  (->> (reduce
+        (fn [pre c]
+          (let [end (peek pre)]
+            (if (= c \newline)
+              pre
+              (if (and end
+                       (match-opposite-case end c))
+                (pop pre)
+                (conj pre c)))))
+        []
+        in)
+       (apply str)))
+
+(test/deftest day5-1-test
+  (test/is
+   (= (day5-1 "dabAcCaCBAcCcaDA")
+      "dabCBAcaDA"))
+  (test/is
+   (= (count (day5-1 "dabAcCaCBAcCcaDA")) 10))
+  (test/are [in out] (= (day5-1 in) out)
+    "aA" ""
+    "abBA" ""
+    "abAB" "abAB"
+    "aabAAB" "aabAAB"
+    "aYyzZxXZzAa" "a"))
+
+(defn day5-2 [in]
+  (let [candidates (mapv char (range (int \a) (inc (int \z))))
+        rf (fn [pre c]
+             (let [end (peek pre)]
+               (if (= c \newline)
+                 pre
+                 (if (and end
+                          (match-opposite-case end c))
+                   (pop pre)
+                   (conj pre c)))))
+        streams (zipmap candidates
+                        (map
+                         (fn [filter-char]
+                           (comp (remove #{filter-char (Character/toUpperCase filter-char)})
+                                 (x/reduce (completing rf) [])
+                                 (map count)))
+                         candidates))]
+    (->> (into {}
+               (x/transjuxt streams)
+               in)
+         (apply min-key val)
+         val)))
+
+(test/deftest day5-2-test
+  (test/is
+   (= (day5-2 "dabAcCaCBAcCcaDA")
+      4)))
+
+(comment
+  (day5-1-test)
+  (-> (day5-1 (slurp (io/resource "day5.txt")))
+      count) ;;11108
+
+  (time (day5-2 (slurp (io/resource "day5.txt"))))5094
+  
+  (def r *1)
+  (->> r
+       (partition 2 1)
+       (some (fn [[l r]]
+               (when (match-opposite-case l r)
+                 [l r]))))
+  (count r)
+  (day5-1 r)
+  (def r2 *1)
+  (count r2)
+  
+  (Character/isLowerCase \a)
+  (Character/toLowerCase \A)
+  (match-opposite-case \A \a)
+  (match-opposite-case \a \A)
+  (match-opposite-case \A \B)
+
+  (into {} (x/transjuxt {:sum (x/reduce +) :mean x/avg :count x/count}) (range 256))
+  )
