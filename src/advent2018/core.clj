@@ -508,3 +508,153 @@ wvxyz
 
   (into {} (x/transjuxt {:sum (x/reduce +) :mean x/avg :count x/count}) (range 256))
   )
+
+
+(defn day6-1 [in]
+  (let [lines (into []
+                    (map-indexed
+                     (fn [idx line]
+                       (let [[_ x y] (re-find #"(\d+), (\d+)" line)
+                             [x y] (map #(Long/parseLong %) [x y])
+                             id (if (<= idx 24)
+                                  (char (+ (int \a) idx))
+                                  (str "ID_" idx))]
+                         [[x y] id])))
+                    (xio/lines-in (string-in in)))
+
+        ;; points spawn 'claimers' which spawn claimers in 8 directions
+        ;; claimer dies, claims on same char die, claims on other claim die and become dot .
+
+        maxs (into {}
+                   (x/transjuxt {:x-max (comp (map (fn [[[x y] id]]
+                                                     x))
+                                              x/max)
+                                 :y-max  (comp (map (fn [[[x y] id]]
+                                                      y))
+                                               x/max)})
+                   lines)
+        max-gen (max (:x-max maxs) (:y-max maxs))
+
+        spawn-to (fn [state]
+                   (->> (for [[[x y] id] (:active state)
+                              [dx dy] [[0 -1] [0 1] [-1 0] [1 0]]
+                              :let [nx (+ x dx)
+                                    ny (+ y dy)]]
+                          [[nx ny] id])
+                        (reduce
+                         (fn [spawned [[x y] id]]
+                           (let [claim-id (get spawned [x y])]
+                             (if (and claim-id
+                                      (not= id claim-id))
+                               ;; concurrent claim is shared dot \.
+                               (assoc spawned [x y] \.)
+                               (assoc spawned [x y] id))))
+                         {})))
+        
+        state (reduce
+               (fn [state gen]
+                 (if (= gen max-gen)
+                   (reduced state)
+                   (let [spawned (spawn-to state)]
+                     (reduce
+                      (fn [state [[x y] id]]
+                        (if-let [claim-id (get (:field state) [x y])]
+                          ;; if our own or someone else -> die
+                          state
+                          (-> state
+                              (assoc-in [:field [x y]] id)
+                              (update :active assoc [x y] id))))
+                      (-> state
+                          (update :gen inc)
+                          (assoc :active {}))
+                      spawned))))
+               {:gen 0
+                :active (into {} lines)
+                :field (into {}
+                             (map (fn [[xy id]]
+                                    [xy (if (char? id)
+                                          (Character/toUpperCase ^Character id)
+                                          id)]))
+                             lines)}
+               (range))
+        result (let [sources (map (fn [[xy id]] id) lines)
+                     active-sources (set (map (fn [[xy id]] id) (:active state)))
+                     sources (set (remove active-sources sources))]
+                 (println "sources" sources "active-sources" active-sources)
+                 (->> (into {:none 0}
+                            (comp (keep (fn [[xy id]]
+                                          (when (contains? sources id)
+                                            id)))
+                                  (x/by-key identity
+                                            x/count))
+                            (:field state))
+                      (apply max-key second)))
+        state (assoc state :result result)]
+    state))
+
+(defn print-state6 [state]
+  (let [field (:field state)]
+    (println "at generation: " (:gen state))
+    (println "active" (:active state))
+    (println "biggest" (:result state))
+    (let [max-gen 10]
+      (dotimes [y max-gen]
+        (dotimes [x max-gen]
+          (print (if-let [c (get field [x y])]
+                   c
+                   \space)))
+        (println)))))
+
+
+(defn day6-2 [in]
+  (let [lines (into []
+                    (map-indexed
+                     (fn [idx line]
+                       (let [[_ x y] (re-find #"(\d+), (\d+)" line)
+                             [x y] (map #(Long/parseLong %) [x y])
+                             id (if (<= idx 24)
+                                  (char (+ (int \a) idx))
+                                  (str "ID_" idx))]
+                         [[x y] id])))
+                    (xio/lines-in (string-in in)))
+        max-x (apply max (map (comp first first) lines))
+        max-y (apply max (map (comp second first) lines))
+
+        result (reduce
+                (fn [matching-cells-count [^long cx ^long cy]]
+                  (let [sum (->> (for [[[^long x ^long y] id] lines]
+                                   (+ (Math/abs (- cx x))
+                                      (Math/abs (- cy y))))
+                                 (reduce +))]
+                    (if (< sum 10000)
+                      (inc matching-cells-count)
+                      matching-cells-count)))
+                0
+                (for [x (range (inc max-x))
+                      y (range (inc max-y))]
+                  [x y]))]
+    result))
+
+(comment
+  (-> (day6-1 "1, 1
+1, 6
+8, 3
+3, 4
+5, 5
+8, 9")
+      print-state6)
+  (day6-1 (io/resource "day6.txt"))
+
+
+
+  (day6-2 "1, 1
+1, 6
+8, 3
+3, 4
+5, 5
+8, 9")
+
+  (day6-2 (io/resource "day6.txt"))
+  (:result *1)
+
+  )
