@@ -658,3 +658,183 @@ wvxyz
   (:result *1)
 
   )
+
+(defn vec-contains? [^clojure.lang.APersistentVector v x]
+  (<= 0 (.indexOf v x)))
+
+(defn day7-1 [in]
+  (let [{:keys [child-parents parent-children]}
+        (into {}
+              (comp (map
+                     (fn [line]
+                       (let [[_ before _ _ _ _ _ after] (str/split line #" ")]
+                         [before after])))
+                    (x/transjuxt {:child-parents (comp (x/by-key second
+                                                                 first
+                                                                 (x/into #{}))
+                                                       (x/into {}))
+                                  :parent-children (comp (x/by-key first
+                                                                   second
+                                                                   (x/into #{}))
+                                                         (x/into {}))}))
+              (xio/lines-in (string-in in)))
+        ;; root is node without parent, so does not appear in child
+        parents (set (keys parent-children))
+        children (set (keys child-parents))
+        roots (reduce
+               disj
+               parents
+               children)
+
+        result (loop [fringe (into (sorted-set) roots)
+                      out []]
+                 (if-not (seq fringe)
+                   (apply str out)
+                   (let [expand (some
+                                 (fn [node]
+                                   (let [required-parents (get child-parents node)]
+                                     (when (every?
+                                            (fn [p]
+                                              (vec-contains? out p))
+                                            required-parents)
+                                       node)))
+                                 fringe)
+                         children (get parent-children expand)]
+                     (recur (-> fringe
+                                (disj expand)
+                                (into children))
+                            (conj out expand)))))
+        ]
+    {:cp child-parents
+     :pc parent-children
+     :roots roots
+     :result result}
+    #_result))
+
+(defn day7-2 [in work-length worker-count]
+  (let [{:keys [child-parents parent-children]}
+        (into {}
+              (comp (map
+                     (fn [line]
+                       (let [[_ before _ _ _ _ _ after] (str/split line #" ")]
+                         [before after])))
+                    (x/transjuxt {:child-parents (comp (x/by-key second
+                                                                 first
+                                                                 (x/into #{}))
+                                                       (x/into {}))
+                                  :parent-children (comp (x/by-key first
+                                                                   second
+                                                                   (x/into #{}))
+                                                         (x/into {}))}))
+              (xio/lines-in (string-in in)))
+        ;; root is node without parent, so does not appear in child
+        parents (set (keys parent-children))
+        children (set (keys child-parents))
+        roots (reduce
+               disj
+               parents
+               children)
+
+        job-length (fn [job]
+                     (+ work-length (- (int (first job)) 64)))
+
+        workers (zipmap (into [:me]
+                              (comp (map (fn [i] (keyword (str "elf-" i))))
+                                    (take worker-count))
+                              (range))
+                        (repeat nil))
+        
+        result (loop [fringe (into (sorted-set) roots)
+                      workers workers
+                      seconds -1
+                      out []]
+                 (if (and (not (seq fringe))
+                          (every? nil? (vals workers)))
+                   {:seconds seconds
+                    :out (apply str out)}
+                   (let [done (for [[id [job todo]] workers
+                                    :when (and job
+                                               (= todo 0))]
+                                job)
+                         out (into out (apply sorted-set done))
+                         fringe (into fringe
+                                      (mapcat (fn [job]
+                                                (get parent-children job)))
+                                      done)
+                         workers (into {}
+                                       (for [[id [job todo]] workers]
+                                         (if-not job
+                                           [id nil]
+                                           (if (= todo 0)
+                                             [id nil]
+                                             [id [job (dec todo)]]))))
+
+                         available-workers (for [[id [job todo]] workers
+                                                 :when (not job)]
+                                             id)
+                         assignments (->> (keep
+                                           (fn [node]
+                                             (let [required-parents (get child-parents node)]
+                                               (when (every?
+                                                      (fn [p]
+                                                        (vec-contains? out p))
+                                                      required-parents)
+                                                 node)))
+                                           fringe)
+                                          (zipmap available-workers))]
+                     (if (seq assignments)
+                       (let [workers (reduce
+                                      (fn [workers [id job]]
+                                        (assoc workers id [job (dec (job-length job))]))
+                                      workers
+                                      assignments)
+                             fringe (reduce
+                                     (fn [fringe [id job]]
+                                       (disj fringe job))
+                                     fringe
+                                     assignments)]
+                         (recur fringe
+                                workers
+                                (inc seconds)
+                                out))
+                       (recur fringe
+                              workers
+                              (inc seconds)
+                              out)))))
+        ]
+    {:cp child-parents
+     :pc parent-children
+     :roots roots
+     :result result}
+    #_result))
+
+(comment
+  (day7-1 "Step C must be finished before step A can begin.
+Step C must be finished before step F can begin.
+Step A must be finished before step B can begin.
+Step A must be finished before step D can begin.
+Step B must be finished before step E can begin.
+Step D must be finished before step E can begin.
+Step F must be finished before step E can begin.
+")
+  (apply sorted-set "ABECD")
+
+  (every? odd? nil)
+  (vec-contains? (vec "ABCED") \E)
+  (- (int \A) 64)
+  
+  (day7-1 (io/resource "day7.txt"))
+  (str/split "Step C must be finished before step A can begin." #" ")
+
+  (day7-2 "Step C must be finished before step A can begin.
+Step C must be finished before step F can begin.
+Step A must be finished before step B can begin.
+Step A must be finished before step D can begin.
+Step B must be finished before step E can begin.
+Step D must be finished before step E can begin.
+Step F must be finished before step E can begin.
+" 0 1)
+
+  (day7-2 (io/resource "day7.txt") 60 4)
+
+)
