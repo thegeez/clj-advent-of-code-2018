@@ -3,6 +3,7 @@
             [clojure.string :as str]
             [clojure.edn :as edn]
             [clojure.test :as test]
+            [clojure.walk :as walk]
             [net.cgrand.xforms :as x]
             [net.cgrand.xforms.io :as xio]
             [net.cgrand.xforms.rfs :as xrf]))
@@ -837,4 +838,106 @@ Step F must be finished before step E can begin.
 
   (day7-2 (io/resource "day7.txt") 60 4)
 
+
 )
+
+(defn day8-tree [in]
+  (let [nums (->> (str/split in  #" ")
+                  (mapv #(Long/parseLong %)))
+
+        left (fn [at nums]
+               ;; move from at to child-n: [... child-n meta-n {} {} {} at ...]
+               (let [skip-children (->> (subvec nums 0 at)
+                                        rseq
+                                        (take-while map?)
+                                        count)]
+                 (- at skip-children
+                    2 ;; to new child-n
+                    )))
+
+        tree (loop [at 0
+                    nums nums]
+               (if (map? (first nums))
+                 (first nums)
+                 (let [child-n (get nums at)
+                       meta-n (get nums (+ at 1))
+                       rest-nums (subvec nums (min (+ at 2)
+                                                   (count nums)))
+                       parsed-children-count (count (take-while map? rest-nums))]
+                   (if (= parsed-children-count child-n)
+                     (let [meta (into []
+                                      (comp (drop child-n)
+                                            (take meta-n))
+                                      rest-nums)
+                           children (into []
+                                          (take child-n)
+                                          rest-nums)
+                           tail (drop (+ child-n meta-n) rest-nums)]
+                       ;; in nums replace [child-n meta-n children+ meta...] with {:spec etc..}
+                       (recur (long (left at nums))
+                              (-> (subvec nums 0 at)
+                                  (conj {:spec [child-n meta-n]
+                                         :meta meta
+                                         :children children})
+                                  (into tail))))
+                     (recur (+ at parsed-children-count 2)
+                            nums)
+                     ))))]
+    tree))
+
+(defn day8-1 [in]
+  (let [tree (day8-tree in)
+        meta-count (->> (tree-seq (comp seq :children) :children tree)
+                        (mapcat :meta)
+                        (reduce +))]
+    {:tree tree
+     :meta-count meta-count}))
+
+(test/deftest day8-1-test
+  (test/is (= (:tree (day8-1 "2 3 0 3 10 11 12 1 1 0 1 99 2 1 1 2"))
+              ;;[2 3 [0 3 [] 10 11 12] [1 1 [0 1 [] 99] 2] 1 1 2]
+              {:spec [2 3]
+               :meta [1 1 2]
+               :children [{:spec [0 3]
+                           :meta [10 11 12]
+                           :children []}
+                          {:spec [1 1]
+                           :meta [2]
+                           :children [{:spec [0 1]
+                                       :meta [99]
+                                       :children []}]}]}
+              )))
+
+(defn day8-2 [in]
+  (let [tree (day8-tree in)
+        sum (walk/postwalk
+             (fn [node]
+               (if (map? node)
+                 (let [{:keys [meta children]} node]
+                   (if (seq children)
+                     (->> (keep (fn [meta-entry]
+                                  (when-let [child (get children (dec meta-entry))]
+                                    child)) meta)
+                          (reduce +))
+                     (reduce + meta)))
+                 node))
+             tree)]
+    sum))
+
+(comment
+  (day8-1-test)
+  (day8-1 "2 3 0 3 10 11 12 1 1 0 1 99 2 1 1 2")
+  (let [in (-> (slurp (io/resource "day8.txt"))
+               str/split-lines
+               first)]
+    (time (day8-1 in)))
+
+
+  (day8-2 "2 3 0 3 10 11 12 1 1 0 1 99 2 1 1 2")
+
+  (let [in (-> (slurp (io/resource "day8.txt"))
+               str/split-lines
+               first)]
+    (time (day8-2 in)))32487
+ 
+  )
