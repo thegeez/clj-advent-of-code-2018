@@ -924,6 +924,28 @@ Step F must be finished before step E can begin.
              tree)]
     sum))
 
+(defn day8-tree-alt [input]
+  (let [parse (fn parse [[child-n meta-n & more]]
+                (let [[children more] #_(nth (iterate
+                                              (fn [[children more]]
+                                                (let [[child more] (parse more)]
+                                                  [(conj children child)
+                                                   more]))
+                                              [[] more])
+                                             child-n)
+                      (reduce
+                       (fn [[children more] _n]
+                         (let [[child more] (parse more)]
+                           [(conj children child)
+                            more]))
+                       [[] more]
+                       (range child-n))
+                      [meta more] (split-at meta-n more)]
+                  [{:spec [child-n meta-n]
+                    :meta meta
+                    :children children} more]))]
+    (first (parse input))))
+
 (comment
   (day8-1-test)
   (day8-1 "2 3 0 3 10 11 12 1 1 0 1 99 2 1 1 2")
@@ -938,6 +960,249 @@ Step F must be finished before step E can begin.
   (let [in (-> (slurp (io/resource "day8.txt"))
                str/split-lines
                first)]
-    (time (day8-2 in)))32487
- 
+    (time (day8-2 in)))
+
+  (day8-tree-alt [2 3 0 3 10 11 12 1 1 0 1 99 2 1 1 2])
+
+  )
+
+
+(defn day9-1 [in]
+  (let [[players last-marble] (->> (re-seq #"\d+" in)
+                                   (map #(Long/parseLong %)))
+
+        place-marble (fn [[high-scores ^java.util.ArrayList circle at] [id marble]]
+                       (when (zero? (mod marble 10000))
+                         (println "marble: " marble))
+                       (if (zero? (mod marble 23))
+                         (let [take-marble-idx (mod (- at 7) (.size circle))
+                               take-marble (.get circle take-marble-idx)
+                               new-circle (doto circle
+                                            (.remove (int take-marble-idx)))
+
+                               new-high-scores (update high-scores id (fnil + 0) marble take-marble)]
+                           [new-high-scores
+                            new-circle
+                            take-marble-idx])
+                         (let [new-at (inc (mod (+ at 1) (.size circle)))
+                               new-circle (doto circle
+                                            (.add new-at marble))]
+                           [high-scores
+                            new-circle
+                            new-at])))
+
+        [high-scores cicle at] (reduce
+                                  place-marble
+                                  [{}
+                                   (doto (java.util.ArrayList.)
+                                     (.add 0))
+                                   0]
+                                  (map list
+                                       (cycle (map inc (range players)))
+                                       (range 1 (inc last-marble))))
+        [winner score] (apply max-key second high-scores)]
+    score))
+
+
+(defn day9-2 [in]
+  (let [[players last-marble] (->> (re-seq #"\d+" in)
+                                   (map #(Long/parseLong %)))
+
+        circle (doto (java.util.ArrayList.)
+                 (.add 0))
+        high-scores (loop [marble 1
+                           high-scores {}
+                           at 0]
+                      (if (= marble (inc last-marble))
+                        high-scores
+                        (let [id (inc (mod marble players))]
+                          (if (zero? (mod marble 23))
+                            (let [take-marble-idx (long (mod (- at 7) (.size circle)))
+                                  take-marble (.get circle take-marble-idx)
+
+                                  new-high-scores (update high-scores id (fnil + 0) marble take-marble)]
+                              (doto circle
+                                (.remove (int take-marble-idx)))
+                              (recur (inc marble)
+                                     new-high-scores
+                                     take-marble-idx))
+                            (let [new-at (long (inc (mod (+ at 1) (.size circle))))]
+                              (doto circle
+                                (.add new-at marble))
+                              (recur (inc marble)
+                                     high-scores
+                                     new-at))))))
+        [winner score] (apply max-key second high-scores)]
+    score))
+
+(defn logoot-compare [l r]
+  (loop [i 0]
+    (let [lx (get l i)
+          rx (get r i)]
+      (if (and (not lx)
+               (not rx))
+        0
+        (if (not lx)
+          -1
+          (if (not rx)
+            1
+            (let [res (compare lx rx)]
+              (if (zero? res)
+                (recur (inc i))
+                res))))))))
+
+
+(defn next-index [sm index]
+  (let [ks (-> (subseq sm > index)
+               first)]
+    (if ks
+      (key ks)
+      (key (first sm)))))
+
+(defn prev-index [sm index]
+  (let [ks (-> (rsubseq sm < index)
+               first)]
+    (if ks
+      (key ks)
+      (key (first (rseq sm))))))
+
+(def QUARTER_LONG_MAX (long (/ Long/MAX_VALUE 4)))
+(def HALF_LONG_MAX (long (/ Long/MAX_VALUE 2)))
+
+(defn new-index [left-index right-index]
+  (if (= left-index right-index)
+    [HALF_LONG_MAX]
+    (if (= (logoot-compare left-index right-index) 1)
+      ;; left = last and right = first
+      (conj left-index HALF_LONG_MAX)
+
+      (loop [i 0
+             common []]
+        (let [lx (get left-index i)
+              rx (get right-index i)]
+          (if (= lx rx)
+            (recur (inc i)
+                   (conj common lx))
+            (if (and (= lx 0)
+                     (= rx 1))
+              (conj left-index HALF_LONG_MAX)
+              (conj common (long (Math/floor (/ (+ (or lx 0) rx) 2)))))))))))
+
+(defn day9-2-alt [in]
+  (let [[players last-marble] (->> (re-seq #"\d+" in)
+                                   (map #(Long/parseLong %)))
+
+
+        index [0]
+        high-scores (loop [marble 1
+                           index index
+                           circle (sorted-map-by logoot-compare
+                                                 index 0)
+                           high-scores {}]
+                      (when (zero? (mod marble 10000))
+                        (println "marble" marble))
+                      #_(do (println "================================")
+                          (println "marble" marble)
+                          (println "index" index)
+                          (println "circle map" circle)
+                          (println "circle" (vals circle)))
+                      (if (= marble (inc last-marble))
+                        high-scores
+                        (let [id (inc (mod marble players))]
+                          (if (zero? (mod marble 23))
+                            (let [take-marble-idx (nth (iterate (partial prev-index circle) index) 7)
+                                  take-marble (get circle take-marble-idx)
+
+                                  index-new (next-index circle take-marble-idx)
+                                  circle-new (dissoc circle take-marble-idx)
+                                  ;;_ (println "marble " marble "take-marble" take-marble " idx "take-marble-idx "hmm" (keys circle))
+                                  high-scores-new (update high-scores id (fnil + 0) marble take-marble)]
+                              (recur (inc marble)
+                                     index-new
+                                     circle-new
+                                     high-scores-new))
+                            (let [index-neighbor (next-index circle index)
+                                  index-neighbor-next (next-index circle index-neighbor)
+                                  index-new (new-index index-neighbor index-neighbor-next)]
+                              (recur (inc marble)
+                                     index-new
+                                     (assoc circle index-new marble)
+                                     high-scores))))))
+        [winner score] (apply max-key second high-scores)]
+    score))
+
+(test/deftest day9-1-test
+  (test/are [in out] (= (day9-1 in) (day9-2 in)
+                        (day9-2-alt in)
+
+                        out
+                        )
+    "9 players; last marble is worth 25 points" 32
+    "10 players; last marble is worth 1618 points" 8317
+    "13 players; last marble is worth 7999 points" 146373
+    "17 players; last marble is worth 1104 points" 2764
+    "21 players; last marble is worth 6111 points" 54718
+    "30 players; last marble is worth 5807 points" 37305
+    ))
+
+
+
+
+
+(comment
+  (day9-1 "9 players; last marble is worth 25 points")
+
+  (day9-1-test)
+
+  (day9-1 (slurp (io/resource "day9.txt")))
+  (day9-2 (slurp (io/resource "day9.txt")))
+
+  (day9-2 (-> (slurp (io/resource "day9.txt"))
+              (str/replace " points" "00 points")))
+
+
+  (sort logoot-compare [[5] [4 8] [4]])
+
+  (-> (sorted-map-by logoot-compare
+                     [5] 3 [4 8] 2 [4] 1
+                     )
+      #_(keys)
+      (subseq >= [4])
+      ;;first
+      ;;key
+      )
+
+  (logoot-compare [3] [3 8])
+  
+  (-> (sorted-map-by logoot-compare
+                     [5] 3 [4 8] 2 [4] 1
+                     )
+      (next-index [4 8])
+      #_(prev-index [4]))
+
+  (let [sm (sorted-map-by logoot-compare
+                          [5] 3 [4 8] 2 [4] 1
+                          )
+        ]
+    (nth (iterate (partial prev-index sm) [4 8]) 4))
+
+  (let [sm (sorted-map-by logoot-compare
+                          [5] 3 [4 8] 2 [4] 1
+                          )
+        ]
+    (first  (keys sm))
+    (rsubseq sm > [4 8]))
+
+  (new-index [0] [0 1])
+  (sorted-map-by logoot-compare
+                 [1] 3 [0 1] 2 [0] 1
+
+                 )
+
+  (day9-2-alt "9 players; last marble is worth 25 points")
+
+  (day9-2-alt (slurp (io/resource "day9.txt")))
+
+  (day9-2-alt (-> (slurp (io/resource "day9.txt"))
+                  (str/replace " points" "00 points")))
   )
