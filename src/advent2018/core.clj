@@ -1131,6 +1131,49 @@ Step F must be finished before step E can begin.
         [winner score] (apply max-key second high-scores)]
     score))
 
+(defn day9-2-alt-2 [in]
+  (let [[players last-marble] (->> (re-seq #"\d+" in)
+                                   (map #(Long/parseLong %)))
+
+
+        
+        high-scores (loop [marble 1
+                           index index
+                           circle (sorted-map-by logoot-compare
+                                                 index 0)
+                           high-scores {}]
+                      (when (zero? (mod marble 10000))
+                        (println "marble" marble))
+                      #_(do (println "================================")
+                            (println "marble" marble)
+                            (println "index" index)
+                            (println "circle map" circle)
+                            (println "circle" (vals circle)))
+                      (if (= marble (inc last-marble))
+                        high-scores
+                        (let [id (inc (mod marble players))]
+                          (if (zero? (mod marble 23))
+                            (let [take-marble-idx (nth (iterate (partial prev-index circle) index) 7)
+                                  take-marble (get circle take-marble-idx)
+
+                                  index-new (next-index circle take-marble-idx)
+                                  circle-new (dissoc circle take-marble-idx)
+                                  ;;_ (println "marble " marble "take-marble" take-marble " idx "take-marble-idx "hmm" (keys circle))
+                                  high-scores-new (update high-scores id (fnil + 0) marble take-marble)]
+                              (recur (inc marble)
+                                     index-new
+                                     circle-new
+                                     high-scores-new))
+                            (let [index-neighbor (next-index circle index)
+                                  index-neighbor-next (next-index circle index-neighbor)
+                                  index-new (new-index index-neighbor index-neighbor-next)]
+                              (recur (inc marble)
+                                     index-new
+                                     (assoc circle index-new marble)
+                                     high-scores))))))
+        [winner score] (apply max-key second high-scores)]
+    score))
+
 (test/deftest day9-1-test
   (test/are [in out] (= (day9-1 in) (day9-2 in)
                         (day9-2-alt in)
@@ -1205,4 +1248,5 @@ Step F must be finished before step E can begin.
 
   (day9-2-alt (-> (slurp (io/resource "day9.txt"))
                   (str/replace " points" "00 points")))
+
   )
