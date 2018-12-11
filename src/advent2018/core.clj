@@ -1136,6 +1136,7 @@ Step F must be finished before step E can begin.
                                    (map #(Long/parseLong %)))
 
 
+        index [0]
         
         high-scores (loop [marble 1
                            index index
