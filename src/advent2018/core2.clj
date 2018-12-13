@@ -362,3 +362,215 @@ position=<-3,  6> velocity=< 2, -1>")
 
 
   )
+
+(defn day13-1 [in]
+  (let [lines (into []
+                    (map vec)
+                    (xio/lines-in (core/string-in in)))
+
+        empty-carts (sorted-map-by (fn [[lx ly] [rx ry]]
+                                     ;; rows prio over cols
+                                     (compare [ly lx] [ry rx])))
+        [track carts] (reduce
+                       (fn [[track carts] [x y]]
+                         (let [c (get-in track [y x])
+                               cart (get (set "<>v^") c)
+                               cart-replace (zipmap "<>v^" "--||")]
+                           (if cart
+                             [(assoc-in track [y x] (get cart-replace cart))
+                              (assoc carts [x y] [cart :left])]
+                             [track carts])))
+                       [lines empty-carts]
+                       (for [x (range (count (first lines)))
+                             y (range (count lines))]
+                         [x y]))
+
+        tick (fn [carts]
+               (reduce
+                (fn [carts [[x y] [c crossing]]]
+                  (let [[dx dy] (get {\> [1 0]
+                                      \< [-1 0]
+                                      \^ [0 -1]
+                                      \v [0 1]} c)
+                        [nx ny] (map + [x y] [dx dy])
+                        t (get-in track [ny nx])
+
+                        [nc ncrossing] (cond
+                                         (= t \\)
+                                         [(get (zipmap "><^v" "v^<>") c) crossing]
+                                         (= t \/)
+                                         [(get (zipmap "><^v" "^v><") c) crossing]
+                                         (= t \+)
+                                         (let [nc (get (get {:left (zipmap "><^v" "^v<>")
+                                                             :right (zipmap "><^v" "v^><")
+                                                             :straight (zipmap "><^v" "><^v")} crossing) c)
+                                               ncrossing (get {:left :straight
+                                                               :straight :right
+                                                               :right :left} crossing)]
+                                           [nc ncrossing])
+                                         :else
+                                         [c crossing])]
+                    (if (contains? carts [nx ny])
+                      (reduced (reduced [nx ny]))
+                      (-> carts
+                          (dissoc [x y])
+                          (assoc [nx ny] [nc ncrossing])))))
+                carts
+                carts))
+
+        [x y :as crash-site]
+        (->> (iterate tick carts)
+             ;;(drop 40) (take 20)
+             ;;(take 20)
+             #_(mapv (fn [carts]
+                       (when (not (reduced? carts))
+                         (do (println "carts" carts)
+                             (doseq [y (range (count track))]
+                               (doseq [x (range (count (first track)))]
+                                 (print (if-let [[c crossing] (get carts [x y])]
+                                          c
+                                          (get-in track [y x]))))
+                               (println))
+                             (println "===========================================")))
+                       carts))
+             #_(map-indexed (fn [idx carts]
+                            (when (not (reduced? carts))
+                              (spit "run.html"
+                                    (with-out-str
+                                      (do
+                                        (println (str"<a name=\"step" idx "\">" idx "</a><br>"
+                                                     "<a href=\"#step" (dec idx) "\">prev</a><br>"
+                                                     "<a href=\"#step" (inc idx) "\">next</a>"))
+                                        
+                                        (println "<br>" carts "<br>")
+                                        (doseq [y (range 20 (count track))]
+                                          (doseq [x (range (count (first track)))]
+                                            (print (if (or (= [x y] [134 96])
+                                                           (= [x y] [43 91]))
+                                                     "<span style=\"color: red;\"><b>X</b></span>"
+                                                       (if-let [[c crossing] (get carts [x y])]
+                                                         (str "<span style=\"color: " (get {:left "red"
+                                                                                            :right "blue"
+                                                                                            :straight "green"} crossing) ";\"><b>" c "</b></span>")
+                                                         (let [t (get-in track [y x])]
+                                                           (if (= t \space)
+                                                             "&nbsp;"
+                                                             t))))))
+                                          (println "<br>"))
+                                        (println "<br><br>")))
+                                    :append true))
+                            carts))
+             (some (fn [res]
+                     (when (reduced? res)
+                       (unreduced res)))))
+        ]
+    (str x "," y)))
+
+(defn day13-2 [in]
+  (let [lines (into []
+                    (map vec)
+                    (xio/lines-in (core/string-in in)))
+
+        empty-carts (sorted-map-by (fn [[lx ly] [rx ry]]
+                                     ;; rows prio over cols
+                                     (compare [ly lx] [ry rx])))
+        [track carts] (reduce
+                       (fn [[track carts] [x y]]
+                         (let [c (get-in track [y x])
+                               cart (get (set "<>v^") c)
+                               cart-replace (zipmap "<>v^" "--||")]
+                           (if cart
+                             [(assoc-in track [y x] (get cart-replace cart))
+                              (assoc carts [x y] [cart :left])]
+                             [track carts])))
+                       [lines empty-carts]
+                       (for [x (range (count (first lines)))
+                             y (range (count lines))]
+                         [x y]))
+
+        ;;_ (println "carts" carts)
+        tick (fn [carts]
+               (->> (iterate
+                     (fn [[new-carts old-carts]]
+                       (if-not (first old-carts)
+                         (reduced new-carts)
+                         (let [[[x y] [c crossing]] (first old-carts)
+                               [dx dy] (get {\> [1 0]
+                                             \< [-1 0]
+                                             \^ [0 -1]
+                                             \v [0 1]} c)
+                               [nx ny] (map + [x y] [dx dy])
+                               t (get-in track [ny nx])
+
+                               [nc ncrossing] (cond
+                                                (= t \\)
+                                                [(get (zipmap "><^v" "v^<>") c) crossing]
+                                                (= t \/)
+                                                [(get (zipmap "><^v" "^v><") c) crossing]
+                                                (= t \+)
+                                                (let [nc (get (get {:left (zipmap "><^v" "^v<>")
+                                                                    :right (zipmap "><^v" "v^><")
+                                                                    :straight (zipmap "><^v" "><^v")} crossing) c)
+                                                      ncrossing (get {:left :straight
+                                                                      :straight :right
+                                                                      :right :left} crossing)]
+                                                  [nc ncrossing])
+                                                :else
+                                                [c crossing])]
+                           (if (contains? new-carts [nx ny])
+                             [(dissoc new-carts [nx ny])
+                              (dissoc old-carts [x y])]
+                             (if (contains? old-carts [nx ny])
+                               [new-carts
+                                (-> old-carts
+                                    (dissoc [nx ny])
+                                    (dissoc [x y]))]
+                               [(assoc new-carts [nx ny] [nc ncrossing])
+                                (dissoc old-carts [x y])])))))
+                     [empty-carts carts])
+                    (some (fn [carts]
+                            (when (reduced? carts)
+                              (unreduced carts))))))
+
+        [x y :as crash-site]
+        (->> (iterate tick carts)
+             (some (fn [carts]
+                     (when (= (count carts) 1)
+                       (ffirst carts)))))
+        ]
+    (str x "," y)))
+
+
+(comment
+  (day13-1 "/->-\\        
+|   |  /----\\
+| /-+--+-\\  |
+| | |  | v  |
+\\-+-/  \\-+--/
+  \\------/      ")
+
+  (day13-1 (io/resource "day13.txt"))
+
+  (-> (sorted-map-by (fn [[lx ly] [rx ry]]
+                       (compare [ly lx] [ry rx])) [8 2] :a [6 2] :b)
+      first)
+
+  (day13-2 "/>-<\\  
+|   |  
+| /<+-\\
+| | | v
+\\>+</ |
+  |   ^
+  \\<->/")
+
+  (day13-2 "/><-\\  
+|   |  
+| /<+-\\
+| | | v
+\\>+</ |
+  |   ^
+  \\<->/")
+
+  (day13-2 (io/resource "day13.txt"))
+
+  )
