@@ -224,3 +224,141 @@ position=<-3,  6> velocity=< 2, -1>")
   (day11-2 7989)
 
   )
+
+(defn day12-1 [in]
+  (let [lines (into [] (xio/lines-in (core/string-in in)))
+        [init _blank & rules] lines
+        init [0 (vec (subs init (count "initial state: ")))]
+        rules (into {}
+                    (map (fn [rule]
+                           (let [clause (vec (subs rule 0 5))
+                                 effect (first (subs rule 9 10))]
+                             [clause effect])))
+                    rules)
+
+        I (atom -1)
+        iters (iterate
+               (fn [[offset pots]]
+                 (let [i (swap! I inc)
+                       offset-out (- offset 2)]
+                   (when (<= i 20)
+                     (println "pots" (let [ostr (pr-str [i offset offset-out])]
+                                       (str (apply str (repeat (- 10 (count ostr)) " "))
+                                            " "
+                                            ostr))
+                              "|"
+                              (apply str (repeat (- 10 (* -1 offset)) " "))
+                              (apply str pots)))
+                   (let [
+                         pots-out (->> (concat [\. \. \. \.]
+                                               pots
+                                               [\. \. \. \.])
+                                       (partition 5 1)
+                                       (mapv #(get rules % \.)))
+                         empty-prefix (count (take-while #{\.} pots-out))
+                         empty-suffix (count (take-while #{\.} (rseq pots-out)))
+                         new-offset-out (+ offset-out empty-prefix)
+                         pots-out (subvec pots-out empty-prefix
+                                          (- (count pots-out) empty-suffix))]
+                     ;;(println "offset" offset "offset-out" offset-out "new-offset-out" new-offset-out "empty prefix" empty-prefix "empty suffix" empty-suffix)
+                     ;;(println "pots-out" (apply str pots-out))
+                     [new-offset-out pots-out])))
+               init)
+
+        [offset pots] (nth iters 20)
+        result (->> (map (fn [idx pot]
+                           (if (= pot \#)
+                             idx
+                             0))
+                         (range offset (+ offset (count pots)))
+                         pots)
+                    (reduce +))]
+    {:init init
+     :rules rules
+     ;;:iters iters
+     :result result}))
+
+(defn day12-2 [in]
+  (let [lines (into [] (xio/lines-in (core/string-in in)))
+        [init _blank & rules] lines
+        init (vec (subs init (count "initial state: ")))
+        rules (into {}
+                    (map (fn [rule]
+                           (let [clause (vec (subs rule 0 5))
+                                 effect (first (subs rule 9 10))]
+                             [clause effect])))
+                    rules)
+
+        [offset pots] (loop [i 0
+                             offset 0
+                             pots init
+                             seen {}]
+                        (if (= i
+                               50000000000
+                               #_20)
+                          [offset pots]
+                          (let [pots-out (->> (concat [\. \. \. \.]
+                                                      pots
+                                                      [\. \. \. \.])
+                                              (partition 5 1)
+                                              (mapv #(get rules % \.)))
+                                empty-prefix (count (take-while #{\.} pots-out))
+                                empty-suffix (count (take-while #{\.} (rseq pots-out)))
+                                new-offset (+ offset -2 empty-prefix)
+                                pots-out (subvec pots-out empty-prefix
+                                                 (- (count pots-out) empty-suffix))]
+                            (if-let [[prev-id prev-offset] (get seen pots-out)]
+                              (let [offset-diff (- offset prev-offset)
+                                    loop-length (- i prev-id)
+                                    togo (- 50000000000 i)
+                                    last-part (mod togo loop-length)
+                                    final-idx (+ prev-id last-part)
+                                    offset (+ offset (* offset-diff togo))]
+                                [offset pots-out])
+                              (recur (+ i 1)
+                                     new-offset
+                                     pots-out
+                                     (assoc seen pots [i offset]))))))
+
+        result (->> (map (fn [idx pot]
+                           (if (= pot \#)
+                             idx
+                             0))
+                         (range offset (+ offset (count pots)))
+                         pots)
+                    (reduce +))]
+    {:init init
+     :rules rules
+     ;;:iters iters
+     :result result}))
+
+(comment
+  (day12-1
+"initial state: #..#.#..##......###...###
+
+...## => #
+..#.. => #
+.#... => #
+.#.#. => #
+.#.## => #
+.##.. => #
+.#### => #
+#.#.# => #
+#.### => #
+##.#. => #
+##.## => #
+###.. => #
+###.# => #
+####. => #"
+)
+
+  (day12-1 (io/resource "day12.txt"))
+  (-> (day12-2 (io/resource "day12.txt"))
+      :result)
+  
+  (subvec (vec "ABCDE") 1)
+  (range (- 0 2) 5)
+
+
+
+  )
