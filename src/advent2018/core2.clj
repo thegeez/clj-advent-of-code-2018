@@ -147,7 +147,7 @@ position=<-3,  6> velocity=< 2, -1>")
                                       dy (range 3)]
                                   (let [[sx sy] [(+ x dx) (+ y dy)]]
                                     (power sx sy serial)))
-                         power (reduce + points)
+                         power (long (reduce + points))
                          next-x (let [x (inc x)]
                                   (if (= x 301)
                                     1
@@ -574,3 +574,221 @@ position=<-3,  6> velocity=< 2, -1>")
   (day13-2 (io/resource "day13.txt"))
 
   )
+
+
+(defn day14-1 [in]
+  (let [step (fn [{:keys [board at]}]
+               (let [elf-0-r (get board (val (first at)))
+                     elf-1-r (get board (val (second at)))
+                     append-num (+ elf-0-r
+                                   elf-1-r)
+                     add-nums (map #(Long/parseLong (str %)) (pr-str append-num))
+                     board (into board
+                                 add-nums)
+                     at (zipmap (keys at)
+                                (map (fn [idx]
+                                       (let [b (get board idx)]
+                                         (mod (+ idx b 1) (count board)))) (vals at)))]
+                 {:board board
+                  :at at}))
+
+        res (->> (iterate step {:board [3 7]
+                                :at {0 0
+                                     1 1}})
+                 #_(take 16)
+                 #_(map (fn [{:keys [board at done] :as res}]
+                          ;;(println "done" done (count (into (get done 0) (get done 1))))
+                        (doseq [[idx b] (map list (range) board)]
+                          (if-let [[eo ec] (some (fn [[elf at]]
+                                                   (when (= at idx)
+                                                     (get {0 (seq "()")
+                                                           1 (seq "[]")} elf)))
+                                                 at)]
+                            (print (str eo b ec))
+                            (print (str " " b " "))))
+                        (println)
+                        res))
+                 (some (fn [{:keys [board] :as res}]
+                         (when (<= (+ in 10) (count board))
+                           (assoc res :result (apply str
+                                                     (->> board
+                                                          (drop in)
+                                                          (take 10))))))))]
+    res))
+
+(set! *warn-on-reflection* true)
+
+(test/deftest day14-1-test
+  (test/are [in out] (= (:result (day14-1 in)) out)
+    9 "5158916779"
+    5 "0124515891"
+    18 "9251071085"
+    2018 "5941429882"
+    ))
+
+(defn day14-2 [in]
+  (let [num->nums (fn [n]
+                    (map #(Long/parseLong (str %)) (pr-str n)))
+        
+        step (fn [{:keys [board at iter]}]
+               (let [elf-0-r (get board (val (first at)))
+                     elf-1-r (get board (val (second at)))
+                     append-num (+ elf-0-r
+                                   elf-1-r)
+                     add-nums (num->nums append-num)
+                     old-board-count (count board)
+                     board (into board
+                                 add-nums)
+                     at (zipmap (keys at)
+                                (map (fn [idx]
+                                       (let [b (get board idx)]
+                                         (mod (+ idx b 1) (count board)))) (vals at)))]
+                 {:board board
+                  :at at
+                  :prev-count old-board-count
+                  :iter (inc iter)}))
+
+        needle (map #(Long/parseLong (str %)) in)
+        needle-count (count needle)
+        
+        res (->> (iterate step {:board [3 7]
+                                :at {0 0
+                                     1 1}
+                                :prev-count 0
+                                :iter 0})
+                 ;;(take 40)
+                 #_(map (fn [{:keys [board at done] :as res}]
+                          ;;(println "done" done (count (into (get done 0) (get done 1))))
+                          (doseq [[idx b] (map list (range) board)]
+                            (if-let [[eo ec] (some (fn [[elf at]]
+                                                     (when (= at idx)
+                                                       (get {0 (seq "()")
+                                                             1 (seq "[]")} elf)))
+                                                   at)]
+                              (print (str eo b ec))
+                              (print (str " " b " "))))
+                          (println)
+                          res))
+                 #_(take 30000)
+                 #_(map (fn [res]
+                          (when (zero? (mod (:iter res) 1000))
+                            (let [{:keys [board at]} res]
+                              (doseq [[idx b] (map list (range) board)]
+                                (if-let [[eo ec] (some (fn [[elf at]]
+                                                         (when false #_(= at idx)
+                                                               (get {0 (seq "()")
+                                                                     1 (seq "[]")} elf)))
+                                                       at)]
+                                  (print (str eo b ec))
+                                  (print (str " " b " ")))))
+                            (println)
+                            )
+                          res))
+                 (some (fn [{:keys [board prev-count] :as res}]
+                         (let [match-at (if (= (subvec board (max 0 (- (count board) needle-count)))
+                                               needle)
+                                          (- (count board) needle-count)
+                                          (if (= (subvec board (max 0 (- (count board) needle-count 1)))
+                                                 needle)
+                                            (- (count board) needle-count 1)
+                                            nil))]
+                           (when match-at
+                             (assoc res :result match-at))))))]
+    res))
+
+(defn day14-2-alt [in]
+  (let [needle (mapv #(Long/parseLong (str %)) in)
+
+        match (if (= (count needle) 6)
+                (let [[na nb nc nd ne nf] needle]
+                  (fn [[a b c d e f]]
+                    (and (= a na)
+                         (= b nb)
+                         (= c nc)
+                         (= d nd)
+                         (= e ne)
+                         (= f nf))))
+                (let [[na nb nc nd ne] needle]
+                  (fn [[a b c d e]]
+                    (and (= a na)
+                         (= b nb)
+                         (= c nc)
+                         (= d nd)
+                         (= e ne)))))
+
+        res (loop [i 2
+                   board [3 7]
+                   at-0 0
+                   at-1 1]
+              (let [rep-0 (get board at-0)
+                    rep-1 (get board at-1)
+                    add-nums (+ rep-0 rep-1)
+                    tens (let [t (quot add-nums 10)]
+                           (when-not (zero? t)
+                             t))
+                    ones (mod add-nums 10)
+                    board (cond-> board
+                            tens
+                            (conj tens)
+                            true
+                            (conj ones))
+                    at-end-one-prev (- (count board)
+                                       (if (= (count needle) 6)
+                                         7
+                                         6))
+                    done (if (and
+                              (< 7 i)
+                              tens
+                              (match (subvec board at-end-one-prev (count board))))
+                           at-end-one-prev
+                           (let [at-end (- (count board)
+                                           (if (= 6 (count needle))
+                                             6
+                                             5))]
+                             (if (and (< 6 i)
+                                      (match (subvec board at-end (count board))))
+                               at-end
+                               nil)))]
+                (or done
+                    (recur (inc i)
+                           board
+                           (long (mod (+ at-0 rep-0 1) (count board)))
+                           (long (mod (+ at-1 rep-1 1) (count board)))))))]
+    res))
+
+(test/deftest day14-2-test
+  (test/are [in out] (= (:result (day14-2 in))
+                        out)
+    "515891" 9
+    "012451" 5
+    "92510" 18
+    "59414" 2018
+    ))
+
+(test/deftest day14-2-alt-test
+  (test/are [in out] (= (day14-2-alt in)
+                        out)
+    "515891" 9
+    "51589" 9
+    "012451" 5
+    "92510" 18
+    "59414" 2018
+    ))
+
+
+
+(comment
+  (day14-1 9)
+  (day14-1-test)
+  (day14-1 147061)
+
+  (day14-2-test)
+
+  (day14-2-alt-test)
+
+  (day14-2-alt "147061")
+
+  (long (/ 6 10))
+  (quot 01 10)
+  )
+
