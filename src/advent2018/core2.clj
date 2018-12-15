@@ -792,3 +792,433 @@ position=<-3,  6> velocity=< 2, -1>")
   (quot 01 10)
   )
 
+(defn print-round [{:keys [turn width height world goblins elfs]}]
+  (println turn ;;"after" turn "rounds"
+           )
+  (doseq [y (range height)]
+    (let [res (map
+               (fn [x]
+                 (let [w (get world [x y])
+                       g (get goblins [x y])
+                       e (get elfs [x y])]
+                   [(cond
+                      w \#
+                      g \G
+                      e \E
+                      true \.)
+                    (cond
+                      g (str "G(" g ")")
+                      e (str "E(" e ")"))]))
+               (range width))]
+      (println (apply str (map first res)) (str/join " " (keep second res)))))
+  (println))
+
+(def world-map-compare (fn [[lx ly] [rx ry]]
+                         (compare [ly lx] [ry rx])))
+(def world-map (sorted-map-by world-map-compare))
+
+(defn combat [[x y] defend damage]
+  (let [res (if-let [[attack-xy health :as attack] (->> (keep
+                                                         (fn [[dx dy]]
+                                                           (find defend [(+ x dx) (+ y dy)]))
+                                                         [[0 -1]
+                                                          [-1 0]
+                                                          [1 0]
+                                                          [0 1]])
+                                                        ;; attack opponent with min health
+                                                        (sort-by second)
+                                                        first)]
+              (let [health-new (- health damage)
+                    defend (if (< 0 health-new)
+                             (assoc defend attack-xy health-new)
+                             (dissoc defend attack-xy))]
+                defend)
+              defend)]
+    #_(when (#{11 12 13} y)
+      (println "combat" [x y] defend "res" res "action?" (not= defend res)))
+    res))
+
+
+(defn move [[x y] world from to]
+  #_(println "move?" [x y])
+  (let [options (for [[dx dy] [[0 -1] [-1 0] [1 0] [0 1]]
+                      :let [[cx cy] [(+ x dx) (+ y dy)]]
+                      :when (and (not (contains? world [cx cy]))
+                                 (not (contains? from [cx cy]))
+                                 (not (contains? to [cx cy])))]
+                  [cx cy])]
+    (if-let [options (seq options)]
+      (let [enemy-candidates (into (sorted-set-by (fn [[lx ly ldist]
+                                                       [rx ry rdist]]
+                                                    (compare [ldist ly lx]
+                                                             [rdist ry rx])))
+                                   (for [[[tx ty] _health] to
+                                         [dx dy] [[0 -1] [-1 0] [1 0] [0 1]]
+                                         :let [[cx cy] [(+ tx dx) (+ ty dy)]]
+                                         :when (and (not (contains? world [cx cy]))
+                                                    (or (= [cx cy] [x y]) ;; do consider staying in the same place
+                                                        (not (contains? from [cx cy])))
+                                                    (not (contains? to [cx cy])))]
+                                     (let [dist (+ (Math/abs ^long (-' x cx))
+                                                   (Math/abs ^long (-' y cy)))]
+                                       [cx cy dist])))]
+        #_(println "enemy-candidates" enemy-candidates)
+        (if (when-let [[_x _y min-dist] (first enemy-candidates)]
+              (zero? min-dist))
+          ;; we are next to a target, so don't move
+          (do
+            #_(println "not moving, next to target" [x y])
+            nil)
+          (let [
+                ;; active + seen mapping square -> origin with shortest path to here
+                res (loop [active (merge (sorted-map-by world-map-compare)
+                                         (zipmap options
+                                                 options))
+                           seen {}]
+                      #_(println "active" active)
+                      (if-let [match (some (fn [xy]
+                                             (when-let [origin (get active xy)]
+                                               origin))
+                                           enemy-candidates)]
+                        (do
+                          #_(println "do move" [x y] "->" match)
+                          match)
+                        (let [prefer-origin-read-order (fn [seen [to origin]]
+                                                         (if-let [o (get seen to)]
+                                                           (if (= -1 (world-map-compare origin o))
+                                                             (assoc seen to origin)
+                                                             seen)
+                                                           (assoc seen to origin)))
+                              seen (reduce
+                                    prefer-origin-read-order
+                                    seen
+                                    active)
+                              active (reduce
+                                      prefer-origin-read-order
+                                      (empty active)
+                                      (for [[[x y] origin] active
+                                            [dx dy] [[0 -1] [-1 0] [1 0] [0 1]]
+                                            :let [[cx cy] [(+ x dx) (+ y dy)]
+                                                  #_ (println "expand" txy [cx cy])]
+                                            :when (and (not (contains? seen [cx cy]))
+                                                       (not (contains? world [cx cy]))
+                                                       (not (contains? from [cx cy]))
+                                                       (not (contains? to [cx cy])))]
+                                        (do #_(println "expand keep" txy [cx cy])
+                                            [[cx cy] origin])))]
+                          (if-not (seq active)
+                            nil
+                            (recur active
+                                   seen)))))]
+            res)))
+      ;; [x y] is blocked in, therefore go nowhere
+      nil)))
+
+(defn tick-round [{:keys [turn width height world goblins elfs damage-elf] :as round
+                   :or {damage-elf 3}}]
+  (let [turn-order (into (sorted-map-by world-map-compare)
+                         (concat (map (fn [xy] [xy :G]) (keys goblins))
+                                 (map (fn [xy] [xy :E]) (keys elfs))))
+        do-tick (fn [turn-xy world attack defend turn-type]
+                  (let [damage (if (= turn-type :G)
+                                 3
+                                 damage-elf)]
+                    (if-let [turn-xy-new (move turn-xy world attack defend)]
+                      (let [health (get attack turn-xy)
+                            attack-new (-> attack
+                                           (dissoc turn-xy)
+                                           (assoc turn-xy-new health))]
+                        [attack-new
+                         (combat turn-xy-new defend damage)])
+                      [attack
+                       (combat turn-xy defend damage)])))
+        [goblins elfs done] (reduce
+                             (fn [[goblins elfs :as ge] [turn-xy turn-type]]
+                               ;;(println "turn-xy" turn-xy (get goblins turn-xy))
+                               (if (or (not (seq goblins))
+                                       (not (seq elfs)))
+                                 (reduced [goblins elfs :done])
+                                 (if-let [g (and (= turn-type :G)
+                                                 (get goblins turn-xy))]
+                                   (do-tick turn-xy world goblins elfs turn-type)
+                                   (if-let [e (and (= turn-type :E)
+                                                   (get elfs turn-xy))]
+                                     (let [[e g] (do-tick turn-xy world elfs goblins turn-type)]
+                                       [g e])
+                                     ;; planned turn died before being its turn
+                                     ge))))
+                             [goblins elfs]
+                             turn-order)]
+    {:turn (inc turn)
+     :done done
+     :width width
+     :height height
+     :world world
+     :goblins goblins
+     :elfs elfs
+     :damage-elf damage-elf}))
+
+(defn day15-1 [in]
+  (let [lines (vec (str/split-lines in))
+        width (count (take-while #{\#} (first lines)))
+        height (count lines)
+        all (into world-map
+                  (for [[y line] (map-indexed list lines)
+                        [x c] (map-indexed list (take width line))
+
+                        :when (contains? #{\G \E \#} c)]
+                    [[x y] c]))
+        world (into world-map
+                    (for [[xy c] all
+                          :when (= c \#)]
+                      [xy c]))
+        goblins (into world-map
+                      (for [[xy c] all
+                            :when (= c \G)]
+                        [xy 200]))
+        elfs (into world-map
+                   (for [[xy c] all
+                         :when (= c \E)]
+                     [xy 200]))
+        round {:turn 0
+               :width width
+               :height height
+               :world world
+               :goblins goblins
+               :elfs elfs}
+
+        _ (print-round round)
+        res (->> (iterate (fn [round]
+                            (let [res (tick-round round)]
+                              (when (#{0 1 2 63 64 65
+                                       ;;79 80 81
+                                       } (:turn res))
+                                    (print-round res))
+                              res))
+                          round)
+                 #_(take 4)
+                 (some (fn [round]
+                         (when (:done round)
+                           (let [last-round (dec (:turn round))
+                                 score (+ (reduce + (vals (:goblins round)))
+                                          (reduce + (vals (:elfs round))))
+                                 result (* last-round score)]
+                             (println "result" result "score" score "last-round" last-round)
+                             (assoc round :result result))))))]
+    res))
+
+(test/deftest day15-1-test
+  (test/are [in out] (= (:result (day15-1 in)) out)
+    "#######
+#.G...#
+#...EG#
+#.#.#G#
+#..G#E#
+#.....#
+#######" 27730
+
+"#######
+#G..#E#
+#E#E.E#
+#G.##.#
+#...#E#
+#...E.#
+#######" 36334
+
+"#######
+#E.G#.#
+#.#G..#
+#G.#.G#
+#G..#.#
+#...E.#
+#######" 27755
+
+"#######
+#.E...#
+#.#..G#
+#.###.#
+#E#G#G#
+#...#G#
+#######" 28944
+
+"#########
+#G......#
+#.E.#...#
+#..##..G#
+#...##..#
+#...#...#
+#.G...G.#
+#.....G.#
+#########" 18740
+
+))
+
+
+(defn day15-2 [in]
+  (let [lines (vec (str/split-lines in))
+        width (count (take-while #{\#} (first lines)))
+        height (count lines)
+        all (into world-map
+                  (for [[y line] (map-indexed list lines)
+                        [x c] (map-indexed list (take width line))
+
+                        :when (contains? #{\G \E \#} c)]
+                    [[x y] c]))
+        world (into world-map
+                    (for [[xy c] all
+                          :when (= c \#)]
+                      [xy c]))
+        goblins (into world-map
+                      (for [[xy c] all
+                            :when (= c \G)]
+                        [xy 200]))
+        elfs (into world-map
+                   (for [[xy c] all
+                         :when (= c \E)]
+                     [xy 200]))
+        round {:turn 0
+               :width width
+               :height height
+               :world world
+               :goblins goblins
+               :elfs elfs}
+
+        res (some
+             (fn [damage-elf]
+               #_(println "damage-elf" damage-elf)
+               (let [round (assoc round :damage-elf damage-elf)
+                     attempt (->> (iterate (fn [round]
+                                             (let [round (tick-round round)]
+                                               ;;(print-round round)
+                                               #_(when (= damage-elf 15)
+                                                 (println "damage-elfs" damage-elf (count (:elfs round)) (count elfs)))
+                                               (if (= (count (:elfs round)) (count elfs))
+                                                 round
+                                                 (assoc round :elf-dead true))))
+                                           round)
+                                  #_(take 4)
+                                  (some (fn [round]
+                                          ;;(println "turn" (:turn round))
+                                          (if (:elf-dead round)
+                                            :failed
+                                            (when (:done round)
+                                              (let [last-round (dec (:turn round))
+                                                    score (+ (reduce + (vals (:goblins round)))
+                                                             (reduce + (vals (:elfs round))))
+                                                    result (* last-round score)]
+                                                (println "result" result "score" score "last-round" last-round "damage-elf" damage-elf)
+                                                (assoc round :result result)))))))]
+                 (when (not= :failed attempt)
+                   attempt)))
+             (map #(+ % 4) (range)))
+        ;;_ (print-round round)
+        ]
+    res))
+
+
+(test/deftest day15-2-test
+  (test/are [in out] (= (:result (day15-2 in)) out)
+    "#######
+#.G...#
+#...EG#
+#.#.#G#
+#..G#E#
+#.....#
+#######" 4988
+
+    "#######
+#E..EG#
+#.#G.E#
+#E.##E#
+#G..#.#
+#..E#.#
+#######" 31284
+
+    "#######
+#E.G#.#
+#.#G..#
+#G.#.G#
+#G..#.#
+#...E.#
+#######" 3478
+
+    "#######
+#.E...#
+#.#..G#
+#.###.#
+#E#G#G#
+#...#G#
+#######" 6474
+
+    "#########
+#G......#
+#.E.#...#
+#..##..G#
+#...##..#
+#...#...#
+#.G...G.#
+#.....G.#
+#########" 1140))
+
+
+(comment
+
+  (day15-1 "#########
+#G..G..G#
+#.......#
+#.......#
+#G..E..G#
+#.......#
+#.......#
+#G..G..G#
+#########")
+
+
+  (day15-1
+   "#######   
+#.G...#   G(200)
+#...EG#   E(200), G(200)
+#.#.#G#   G(200)
+#..G#E#   G(200), E(200)
+#.....#
+#######"   
+   )
+
+  (-> (day15-1
+       "#######
+#G..#E#
+#E#E.E#
+#G.##.#
+#...#E#
+#...E.#
+#######")
+      :result)
+  ;; round 37 36334
+
+
+  (day15-1 "#######
+#E..EG#
+#.#G.E#
+#E.##E#
+#G..#.#
+#..E#.#
+#######")
+
+  (day15-1 "#########
+#G......#
+#.E.#...#
+#..##..G#
+#...##..#
+#...#...#
+#.G...G.#
+#.....G.#
+#########")
+
+  
+  (day15-1-test)
+
+
+  (day15-2-test)
+
+  (day15-2 (slurp (io/resource "day15.txt")))
+  )
