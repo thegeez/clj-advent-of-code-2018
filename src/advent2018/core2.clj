@@ -1222,3 +1222,178 @@ position=<-3,  6> velocity=< 2, -1>")
 
   (day15-2 (slurp (io/resource "day15.txt")))
   )
+
+
+(defn split-day16 [in]
+  (let [lines (into []
+                    (xio/lines-in (core/string-in in)))
+        [part1 part2] (->> [[] nil lines]
+                           (iterate (fn [[p1 p2 lines]]
+                                      (let [line (first lines)]
+                                        (if (str/starts-with? line "Before")
+                                          (let [[before op after _blank & lines] lines
+                                                example {:before (read-string (subs before (count "Before: ")))
+                                                         :op (mapv #(Long/parseLong %) (str/split op #" "))
+                                                         :after (read-string (subs after (count "After: ")))}]
+                                            [(conj p1 example) p2 lines])
+                                          (let [program (->> lines
+                                                             (drop-while str/blank?)
+                                                             (mapv (fn [line]
+                                                                     (mapv #(Long/parseLong %) (str/split line #" ")))))]
+                                            [p1 program])))))
+                           (some (fn [[p1 p2]]
+                                   (when (and p1 p2)
+                                     [p1 p2]))))]
+    [part1 part2]))
+
+(def all-ops
+  {:addr (fn [mem a b c]
+           (assoc mem c (+ (get mem a 0)
+                           (get mem b 0))))
+   :addi (fn [mem a b c]
+           (assoc mem c (+ (get mem a 0)
+                           b)))
+
+   :mulr (fn [mem a b c]
+           (assoc mem c (* (get mem a 0)
+                           (get mem b 0))))
+   :muli (fn [mem a b c]
+           (assoc mem c (* (get mem a 0)
+                           b)))
+
+   :banr (fn [mem a b c]
+           (assoc mem c (bit-and (get mem a 0)
+                                 (get mem b 0))))
+   :bani (fn [mem a b c]
+           (assoc mem c (bit-and (get mem a 0)
+                                 b)))
+
+   :borr (fn [mem a b c]
+           (assoc mem c (bit-or (get mem a 0)
+                                (get mem b 0))))
+   :bori (fn [mem a b c]
+           (assoc mem c (bit-or (get mem a 0)
+                                b)))
+   :setr (fn [mem a _ c]
+           (assoc mem c (get mem a 0)))
+
+   :seti (fn [mem a _ c]
+           (assoc mem c a))
+
+   :gtir (fn [mem a b c]
+           (assoc mem c (if (> a
+                               (get mem b 0))
+                          1
+                          0)))
+
+   :gtri (fn [mem a b c]
+           (assoc mem c (if (> (get mem a 0)
+                               b)
+                          1
+                          0)))
+
+   :gtrr (fn [mem a b c]
+           (assoc mem c (if (> (get mem a 0)
+                               (get mem b 0))
+                          1
+                          0)))
+
+   :eqir (fn [mem a b c]
+           (assoc mem c (if (= a
+                               (get mem b 0))
+                          1
+                          0)))
+   :eqri (fn [mem a b c]
+           (assoc mem c (if (= (get mem a 0)
+                               b)
+                          1
+                          0)))
+   :eqrr (fn [mem a b c]
+           (assoc mem c (if (= (get mem a 0)
+                               (get mem b 0))
+                          1
+                          0)))})
+
+(defn possible [allowed-ops example]
+  (->> (map (fn [op-kw]
+              (find all-ops op-kw)) allowed-ops)
+       (keep (fn [[op-kw op-fn]]
+               (let [before (:before example)
+                     inputs (rest (:op example))
+                     after (:after example)]
+                 (when (= (apply op-fn before inputs)
+                          after)
+                   op-kw))))))
+
+(defn day16-1 [in]
+  (let [[examples] (split-day16 in)
+        result (->> examples
+                    (filter (fn [example]
+                              (let [pos-ops (possible (keys all-ops) example)]
+                                (println "example" example)
+                                (println "pos-ops" pos-ops)
+                                (<= 3 (count pos-ops)))))
+                    count)]
+    result))
+
+(defn permutations [s]
+  (lazy-seq
+   (if (seq (rest s))
+     (apply concat (for [x s]
+                     (map #(cons x %) (permutations (remove #{x} s)))))
+     [s])))
+
+(defn day16-2 [in]
+  (let [[part1 prog] (split-day16 in)
+        code->ops (reduce
+                   (fn [code->ops example]
+                     (let [[op-code a b s] (:op example)]
+                       (if-let [ops (get code->ops op-code)]
+                         (let [pos-ops (possible ops example)]
+                           (assoc code->ops op-code pos-ops))
+                         (let [avail-ops (reduce disj (set (keys all-ops)) (vals code->ops))
+                               pos-ops (possible avail-ops example)]
+                           (assoc code->ops op-code pos-ops)))))
+                   {}
+                   part1)
+        code->op (->> [{} code->ops]
+                      (iterate (fn [[out code->ops]]
+                                 (let [[code op] (some (fn [[code ops]]
+                                                         (when (= (count ops) 1)
+                                                           [code (first ops)]))
+                                                       code->ops)]
+                                   ;;(println "reduce" [code op])
+                                   [(assoc out code op)
+                                    (into {}
+                                          (for [[c o] code->ops
+                                                :when (not= code c)]
+                                            [c (remove #{op} o)]))])))
+                      #_(map (fn [[out co]]
+                             (Thread/sleep 3000)
+                             (println "==========")
+                             (println "co" co)
+                             (println "-------------")
+                             (println "out" out)
+                             [out co]))
+                      (some (fn [[code->op _]]
+                              (when (= (count code->op) 16)
+                                code->op))))
+
+        mem (reduce
+             (fn [mem statement]
+               (let [[code a b c] statement
+                     op-kw (get code->op code)
+                     op-fn (get all-ops op-kw)]
+                 (op-fn mem a b c)))
+             {}
+             prog)
+        zero-mem (get mem 0)]
+    zero-mem))
+
+
+(comment
+  (day16-1 (io/resource "day16.txt"))
+
+  (day16-2 (io/resource "day16.txt"))
+
+  )
