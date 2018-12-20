@@ -1851,3 +1851,138 @@ y=13, x=498..504
 
 
   )
+
+(defn print-day19 [ip mem]
+  (println "ip=" (get mem ip) (str/join "," mem))
+  (println "\n")
+  mem)
+
+(defn day19-1 [in]
+  (let [prog (into []
+                   (map (fn [line]
+                          (if (= \# (first line))
+                            [:pointer (Long/parseLong (second (re-find #"(\d+)" line)))]
+                            (let [[op a b c] (str/split line #" ")
+                                  [a b c] (map #(Long/parseLong %) [a b c])]
+                              [(keyword op) a b c]))))
+                   (xio/lines-in (core/string-in in)))
+        [[_pointer ip]] prog
+        prog (vec (rest prog))
+        max-ip (count prog)
+
+        STEP (atom 0)
+        iter (fn [mem]
+               (let [op-idx (get mem ip)
+                     prog-line (get prog op-idx)
+                     op-kw (first prog-line)
+                     args (rest prog-line)
+                     op (get all-ops op-kw)
+                     mem-new (apply op mem args)
+                     ip-new (get mem-new ip)
+                     ip-new-inc (inc ip-new)
+                     mem-ip (assoc mem-new ip ip-new-inc)]
+                 (when (and (= op-idx 3)
+                            (zero? (mod (swap! STEP inc) 100)))
+                   (println mem))
+                 
+                 #_(println "res" op-idx prog-line op-kw)
+                 (if (<= max-ip ip-new-inc)
+                   (reduced (get mem-new 0))
+                   mem-ip)))
+        
+        final (->> ;;(vec (repeat 6 0))
+               [1 0 0 0 0 0]
+               (iterate iter)
+               ((fn [res]
+                  (let [best (volatile! [0 0 0 0 0 0])]
+                    (map (fn [mem]
+                           (if (reduced? mem)
+                             (do
+                               (println "MAX mem:" @best)
+                               mem)
+                             (do
+                               (vswap! best (fn [bmem]
+                                              (mapv max bmem mem)))
+                               mem)))
+                         res))))
+               ((fn [res]
+                  (let [fq (volatile! {})]
+                    (map (fn [mem]
+                           (if (reduced? mem)
+                             (do
+                               (println "Command freq:" @fq)
+                               mem)
+                             (do
+                               (vswap! fq (fn [fq]
+                                            (let [pointer (get mem ip)]
+                                              (update fq pointer (fnil inc 0)))))
+                               mem)))
+                         res))))
+               #_(take 6)
+               #_(mapv (partial print-day19 ip))
+               (some (fn [mem]
+                       (when (reduced? mem)
+                         (unreduced mem)))))
+        
+        ]
+    final))
+
+
+(comment
+  (day19-1 "#ip 0
+seti 5 0 1
+seti 6 0 2
+addi 0 1 0
+addr 1 2 3
+setr 1 0 0
+seti 8 0 4
+seti 9 0 5")
+
+  [6 5 6 0 0 0]
+
+  (day19-1 (io/resource "day19.txt"))
+
+  [2072 877 877 767376 26 876]
+  (->> {0 1, 7 12, 20 1, 1 1, 24 1, 4 767376, 15 875, 21 1, 13 876, 22 1, 6 767364, 25 1, 17 1, 3 767376, 12 876, 2 876, 23 1, 19 1, 11 766500, 9 767376, 5 767376, 14 876, 26 1, 16 1, 10 767376, 18 1, 8 767376}
+       (sort-by first))
+  ([0 1]
+   [1 1]
+   [2 876]
+   [3 767376]
+   [4 767376]
+   [5 767376]
+   [6 767364]
+   [7 12]
+   [8 767376]
+   [9 767376]
+   [10 767376]
+   [11 766500]
+   [12 876]
+   [13 876]
+   [14 876]
+   [15 875]
+   [16 1]
+   [17 1]
+   [18 1]
+   [19 1]
+   [20 1]
+   [21 1]
+   [22 1]
+   [23 1]
+   [24 1]
+   [25 1]
+   [26 1])
+
+  ;;3-6
+  seti 1 2 2   ;; reg 2 := 1
+mulr 1 2 3     ;; reg 3 := reg 1 * reg 2
+eqrr 3 5 3     ;; reg 3 := if (reg 5 = reg 3) 1 0
+addr 3 4 4     ;; reg 4 := reg 3 + reg 4
+
+;; 8-12
+addr 1 0 0     ;; reg 0 := reg 0 + reg 1
+addi 2 1 2     ;; reg 2 := reg 2 + 1
+gtrr 2 5 3     ;; reg 3 := if (reg 2 > reg 5) 1 0
+addr 4 3 4     ;; reg 4 := reg 3 + reg 4
+
+  )
