@@ -1741,3 +1741,113 @@ y=13, x=498..504
 
 
   )
+
+(defn print-day18 [world]
+  (println "minute: " (:minute world))
+  (doseq [row (:field world)]
+    (println (str/join "" row)))
+  (println)
+  world)
+
+(defn day18-1 [in]
+  (let [field (into []
+                    (map vec)
+                    (xio/lines-in (core/string-in in)))
+        world {:minute 0
+               :field field}
+
+        iter (fn [world]
+               (let [field (:field world)
+                     field-new (vec (for [y (range (count field))]
+                                      (vec (for [x (range (count (first field)))]
+                                             (let [s (get-in field [y x])
+                                                   neighbours (frequencies
+                                                               (for [dx [-1 0 1]
+                                                                     dy [-1 0 1]
+                                                                     :when (not= 0 dx dy)
+                                                                     :let [n (get-in field [(+ y dy) (+ x dx)])]
+                                                                     :when n]
+                                                                 n))]
+                                               (cond
+                                                 (= s \.)
+                                                 (if (<= 3 (get neighbours \| 0))
+                                                   \|
+                                                   \.)
+
+                                                 (= s \|)
+                                                 (if (<= 3 (get neighbours \# 0))
+                                                   \#
+                                                   \|)
+
+                                                 (= s \#)
+                                                 (if (and (<= 1 (get neighbours \# 0))
+                                                          (<= 1 (get neighbours \| 0)))
+                                                   \#
+                                                   \.)))))))]
+                 {:minute (inc (:minute world))
+                  :field field-new}))
+        
+        worlds (->> world
+                    (iterate iter)
+                    #_(take 300)
+                    #_(mapv print-day18)
+                    ;; part2
+                    (reduce
+                     (fn [seen {:keys [minute field]}]
+                       (println "minute: " minute)
+                       (if-let [prev-minute (get seen field)]
+                         (reduced (let [loop-size (- minute prev-minute)
+                                        _ (println "found loop size" loop-size)
+                                        end-minute 1000000000
+                                        togo (mod (- end-minute minute) loop-size)
+                                        final-field-minute (+ prev-minute togo)
+                                        final-field (some
+                                                     (fn [[field minute]]
+                                                       (when (= minute final-field-minute)
+                                                         field))
+                                                     seen)]
+                                    (println "final-field-minute" final-field-minute "togo" togo "minute" minute "loop size" loop-size)
+                                    #_(println "final-world" final-world)
+                                    ;; return seq of worlds
+                                    [{:minute 1000000000
+                                      :field final-field}]))
+                         (assoc seen field minute)))
+                     {}))
+
+        result {:worlds worlds
+                :result (let [[trees lumber] (x/some
+                                              (x/transjuxt [(comp cat
+                                                                  (keep #{\|})
+                                                                  x/count)
+                                                            (comp cat
+                                                                  (keep #{\#})
+                                                                  x/count)])
+                                              (:field (last worlds)))]
+                          (println [trees lumber])
+                          (* trees lumber))}]
+    result))
+
+
+
+(comment
+  (-> (day18-1 ".#.#...|#.
+.....#|##|
+.|..|...#.
+..|#.....#
+#.#|||#|#|
+...#.||...
+.|....|...
+||...#|.#|
+|.||||..|.
+...#.|..|.")
+      :result)
+
+  (-> (day18-1 (io/resource "day18.txt"))
+      :result)
+
+  (-> (day18-1 (io/resource "day18.txt"))
+      :result)
+
+
+
+  )
