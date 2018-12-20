@@ -1397,3 +1397,347 @@ position=<-3,  6> velocity=< 2, -1>")
   (day16-2 (io/resource "day16.txt"))
 
   )
+
+
+(defn print-day17 [world]
+  (let [[xmin ymin] (:top-left world)
+        [xmax ymax] (:bottom-right world)
+        max-chars-per-cell (count (str xmax))
+        headers (x/some
+                 (comp (map (fn [n]
+                              (let [s (str n)]
+                                (str (apply str (repeat (- max-chars-per-cell (count s)) " ")) s))))
+                       (x/transjuxt
+                        (into []
+                              (map (fn [i]
+                                     (comp (map (fn [n-str]
+                                                  (get n-str i)))
+                                           (x/into []))))
+                              (range max-chars-per-cell))))
+                 (range xmin (inc xmax)))
+        y-columns-offset (count (str ymax))
+        ]
+    (doseq [hr headers]
+      (println (apply str (repeat y-columns-offset " ")) (apply str hr)))
+    (doseq [y (range ymin (inc (inc ymax)))]
+      (print y (apply str (repeat (- y-columns-offset (count (str y))) " ")))
+      (doseq [x (range xmin (inc xmax))]
+        (print (if (= (:spring world) [x y])
+                 \+
+                 (if (some (fn [[[sx sy] sstep]]
+                             (= [sx sy] [x y])) (:sources world))
+                   \S
+                   (if (get (:clay world) [x y])
+                     \#
+                     (if (get (:water world) [x y])
+                       \~
+                       (if (get (:stream world) [x y])
+                         \|
+                         \.)))))))
+      (println)))
+  world)
+
+
+(defn find-wall-corner [[sx sy] world dir]
+  (let [xmin (first (:top-left world))
+        xmax (first (:bottom-right world))
+        [xmin xmax] (if (= dir :left)
+                      [sx (dec xmin)]
+                      [sx (inc xmax)])
+        look-ahead (if (= dir :left)
+                     dec
+                     inc)]
+    (reduce
+     (fn [_ x]
+       (if (or (contains? (:clay world) [x (inc sy)])
+               (contains? (:water world) [x (inc sy)]))
+         (if (get (:clay world) [(look-ahead x) sy])
+           ;; found wall corner
+           (reduced x)
+           ;; go left or right
+           nil)
+         (reduced nil)))
+     nil
+     (range xmin xmax (if (= dir :left)
+                        -1
+                        1)))))
+
+(defn fill [[sx sy] world]
+  (when-let [x-left (find-wall-corner [sx sy] world :left)]
+    (when-let [x-right (find-wall-corner [sx sy] world :right)]
+      (let [y-wall (some
+                    (fn [y]
+                      (when (or (not (core/vec-contains? (get (:by-columns world) (dec x-left)) y))
+                                (not (core/vec-contains? (get (:by-columns world) (inc x-right)) y)))
+                        (inc y)))
+                    (range sy 0 -1))
+            y-ceiling (x/some
+                       (comp (mapcat (fn [x-col]
+                                       (get (:by-columns world) x-col)))
+                             (filter (fn [y]
+                                       (<= y sy)))
+                             x/max)
+                       (range x-left (inc x-right)))
+            y-ceiling (if (and y-ceiling y-wall)
+                        (max (inc y-ceiling) y-wall)
+                        (if y-ceiling
+                          (inc y-ceiling)
+                          y-wall))]
+        {:top-left [x-left y-ceiling]
+         :bottom-right [x-right sy]}))))
+
+(defn find-new-source [[sx sy] world dir]
+  (let [xmin (first (:top-left world))
+        xmax (first (:bottom-right world))
+        ymax (second (:bottom-right world))
+        [xmin xmax] (if (= dir :left)
+                      [sx (dec xmin)]
+                      [sx (inc xmax)])]
+    (reduce
+     (fn [_ x]
+       (if-not (contains? (:clay world) [x sy])
+         (if (and (not (contains? (:clay world) [x (inc sy)]))
+                  (not (contains? (:water world) [x (inc sy)])))
+           ;; found edge, drop down tetris style
+           (let [new-y (x/some
+                        (comp (filter (fn [y]
+                                        (<= sy y)))
+                              (x/wrap nil (+ ymax 2))
+                              x/min
+                              (map dec))
+                        (get (:by-columns world) x))]
+             (reduced [x new-y]))
+           nil)
+         (reduced nil)))
+     nil
+     (range xmin xmax (if (= dir :left)
+                        -1
+                        1)))))
+
+(defn find-wall-x [[sx sy] world dir]
+  (let [xmin (first (:top-left world))
+        xmax (first (:bottom-right world))
+        [xmin xmax] (if (= dir :left)
+                      [sx (dec xmin)]
+                      [sx (inc xmax)])
+        look-ahead (if (= dir :left)
+                     dec
+                     inc)]
+    (some
+     (fn [x]
+       (when (or (contains? (:clay world) [(look-ahead x) sy])
+                 (= (look-ahead x) xmax))
+         x))
+     (range xmin xmax (if (= dir :left)
+                        -1
+                        1)))))
+
+(defn move-source [[sx sy] world]
+  (let [sstep (some (fn [[[x y] sstep]]
+                      (when (= [sx sy] [x y])
+                        sstep))
+                    (:sources world))
+        new-left-source (find-new-source [sx sy] world :left)
+        new-right-source (find-new-source [sx sy] world :right)
+
+        world (update world :sources (fn [sources]
+                                       (cond-> sources
+                                         (or new-left-source
+                                             new-right-source)
+                                         (dissoc [sx sy])
+                                         new-left-source
+                                         (assoc new-left-source sstep)
+                                         new-right-source
+                                         (assoc new-right-source sstep))))
+        world (update world :stream (fn [stream]
+                                      (cond-> (or stream #{})
+                                        ;; sideways
+                                        true
+                                        (into (for [x (let [x-left (if new-left-source
+                                                                     (first new-left-source)
+                                                                     (find-wall-x [sx sy] world :left))
+                                                            x-right (if new-right-source
+                                                                      (first new-right-source)
+                                                                      (find-wall-x [sx sy] world :right))]
+                                                        (range x-left (inc x-right)))]
+                                                [x sy]))
+                                        ;; down left
+                                        new-left-source
+                                        (into (map (fn [y]
+                                                     [(first new-left-source) y])
+                                                   (range sy (inc (second new-left-source)))))
+                                        ;; down right
+                                        new-right-source
+                                        (into (map (fn [y]
+                                                     [(first new-right-source) y])
+                                                   (range sy (inc (second new-right-source)))))
+                                        )))]
+    (when (= [sx sy] [327 1756])
+      (println "move source?" [sx sy])
+      (println "sources" (:sources world)))
+    world))
+
+(defn day17-1 [in]
+  (let [world (into {:spring [500 0]}
+                    (comp (mapcat (fn [line]
+                                    (let [[_ from from-n-str to to-start-str to-end-str] (re-find #"([xy])=(\d+), ([xy])=(\d+)..(\d+)" line)
+                                          [from-n to-start to-end] (map #(Long/parseLong %) [from-n-str to-start-str to-end-str])
+                                          [from to] (map {"x" :x
+                                                          "y" :y} [from to])]
+                                      (for [j (range to-start (inc to-end))]
+                                        (if (= from :x)
+                                          [from-n j]
+                                          [j from-n])))))
+                          (x/transjuxt {:top-left (x/transjuxt [(comp (map first)
+                                                                      x/min
+                                                                      (map dec))
+                                                                (comp (map second)
+                                                                      ;; spring at 500,0
+                                                                      (x/wrap 0 nil)
+                                                                      x/min)])
+                                        :bottom-right (x/transjuxt [(comp (map first)
+                                                                          x/max
+                                                                          (map inc))
+                                                                    (comp (map second)
+                                                                          x/max)])
+                                        :clay (x/into #{})
+                                        :by-columns (comp (x/by-key first ;; group-by x
+                                                                    second ;; y
+                                                                    (x/into []))
+                                                          (x/into {}))}))
+                    (xio/lines-in (core/string-in in)))
+
+        world (assoc world
+                     :sources {(:spring world) 0
+                               ;;[502 9] 0
+                               ;;[500 6] 0
+                               })
+
+        iter (fn [world]
+               (let [{:keys [sources]} world
+                     ;; find source with least filled reservoir
+                     [[sx sy] sstep] (apply min-key (comp second first) ;; by y-val
+                                            sources)
+
+                     ;; top-left to bottom-right if block that can be filled with water from source
+                     ;; if nil source needs to move
+                     can-fill (fill [sx sy] world)]
+                 (if-not can-fill
+                   (move-source [sx sy] world)
+                   (let [[tx ty] (:top-left can-fill)
+                         [bx by] (:bottom-right can-fill)
+                         source-new [sx (dec ty)]
+                         water-count (* (inc (- bx tx))
+                                        (inc (- by ty)))
+                         world (update world :sources (fn [sources]
+                                                        (-> sources
+                                                            (dissoc [sx sy])
+                                                            (assoc source-new (+ sstep water-count)))))
+                         world (update world :water (fn [water]
+                                                      (into (or water #{})
+                                                            (for [x (range tx (inc bx))
+                                                                  y (range ty (inc by))]
+                                                              [x y]))))]
+                     (move-source source-new world)))))
+
+        top-y (apply min (map second (:clay world)))
+        bottom-y (second (:bottom-right world))
+        orig-world world
+        result-world (->> world
+                          (iterate iter)
+                          #_(take 5)
+                          #_(mapv print-day17)
+                          (some (fn [world]
+                                  (when (every?
+                                         (fn [[[sx sy] step]]
+                                           (<= bottom-y sy))
+                                         (:sources world))
+                                    (let [reachable (->> (into (set (:stream world))
+                                                               (:water world))
+                                                         (filter (fn [[x y]]
+                                                                   (<= top-y y bottom-y))))
+                                          part2 (count (:water world))]
+                                      (assoc world
+                                             :result (count reachable)
+                                             :part2 part2))))))]
+    (if (vector? result-world) ;; dev
+      (last result-world)
+      result-world)))
+
+
+(comment
+  (let [world (day17-1 (io/resource "day17.txt"))]
+    (spit "day17world.txt"
+          (with-out-str (print-day17 world))))
+
+  (def w (day17-1
+          "x=495, y=2..7
+y=7, x=495..501
+x=501, y=3..7
+x=498, y=2..4
+x=506, y=1..2
+x=498, y=10..13
+x=504, y=10..13
+y=13, x=498..504
+"))
+  (print-day17 w)
+  w
+
+  (find-wall-corner [500 0] w :left)
+  (find-wall-corner [500 0] w :right)
+  (find-wall-corner [500 6] w :left)
+  (find-wall-corner [500 6] w :right)
+
+  (fill [500 0] w)
+  (fill [500 6] w)
+
+  (-> (day17-1
+       "x=495, y=2..7
+y=7, x=495..501
+x=501, y=3..7
+x=498, y=2..4
+x=506, y=1..2
+x=498, y=10..13
+x=504, y=10..13
+y=13, x=498..504
+")
+      (print-day17))
+
+  (let [world (day17-1 (io/resource "day17.txt"))]
+    (println "result day17-1" (:result world))
+    (println "result day17-2" (:part2 world))
+    (spit "day17world.txt"
+          (with-out-str (print-day17 world)))
+    (def res world))
+
+
+  (->> (slurp "day17world.txt")
+       (filter (set "~"))
+       count)
+
+  (find-wall-x [500 4] w :left)
+  (find-wall-corner [500 0] w :left)
+  (find-wall-corner [500 0] w :right)
+  (find-wall-corner [500 6] w :left)
+  (find-wall-corner [500 6] w :right)
+
+  (fill [500 0] w)
+  (fill [500 6] w)
+
+  (let [w (assoc w
+                 :sources {[500 4] 10}
+                 :water #{[500 5] [499 5] [498 5]})]
+    (print-day17 w)
+    (fill [500 4] w)
+    ;;(find-wall-corner [500 4] w :left)
+    ;;(find-wall-corner [500 4] w :right)
+    )
+
+  (let [w (assoc w :water #{[500 3] [499 3]
+                            [500 5] [499 5] [498 5]})]
+    (print-day17 w)
+    [(find-new-source [500 2] w :left)
+     (find-new-source [500 2] w :right)])
+
+
+  )
