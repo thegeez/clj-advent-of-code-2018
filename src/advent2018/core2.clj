@@ -3,6 +3,8 @@
             [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :as test]
+            [clojure.walk :as walk]
+            [clojure.zip :as zip]
             [net.cgrand.xforms :as x]
             [net.cgrand.xforms.io :as xio]
             [net.cgrand.xforms.rfs :as xrf]))
@@ -1985,4 +1987,305 @@ addi 2 1 2     ;; reg 2 := reg 2 + 1
 gtrr 2 5 3     ;; reg 3 := if (reg 2 > reg 5) 1 0
 addr 4 3 4     ;; reg 4 := reg 3 + reg 4
 
+  )
+
+(defn print-day20 [world]
+  (let [board (:board world)
+        {:keys [top-left
+                bottom-right]}
+        (into {}
+              (comp (map key)
+                    (x/transjuxt {:top-left (x/transjuxt [(comp (map first)
+                                                                x/min)
+                                                          (comp (map second)
+                                                                x/min)])
+                                  :bottom-right (x/transjuxt [(comp (map first)
+                                                                    x/max)
+                                                              (comp (map second)
+                                                                    x/max)])}))
+              board)
+        [xmin ymin] top-left
+        [xmax ymax] bottom-right
+        xrange (- xmax xmin)
+        yrange (- ymax ymin)]
+    ;;(println "top-left" top-left)
+    ;;(println "bottom-right" bottom-right)
+    ;;(println xrange yrange)
+    ;;(println "\n")
+    (doseq [j (range (inc (* 2 (inc yrange))))]
+      (doseq [i (range (inc (* 2 (inc xrange))))]
+        (print (if (and (odd? j)
+                        (odd? i))
+                 (let [x (+ (/ (dec i) 2) xmin)
+                       y (+ (/ (dec j) 2) ymin)]
+                   (if (= 0 y x)
+                     \X
+                     (if (or (contains? (get board [(dec x) y]) \E)
+                             (contains? (get board [x (dec y)]) \S)
+                             (contains? (get board [(inc x) y]) \W)
+                             (contains? (get board [x (inc y)]) \N))
+                         \.
+                         \#)))
+                 (if (and (even? j)
+                          (odd? i))
+                   ;; n/s
+                   (let [[x y] [(+ xmin (/ (dec i) 2)) (+ ymin (/ j 2))]
+                         above [x (dec y)]]
+                     #_(println "n/s" [x y])
+                     (if (and (contains? (get board [x y]) \N)
+                              (contains? (get board above) \S))
+                       \-
+                       \#))
+                   (if (and (odd? j)
+                            (even? i))
+                     ;; e/w
+                     (let [[x y] [(dec (+ xmin (/ i 2))) (+ ymin (/ (dec j) 2))]
+                           right [(inc x) y]]
+                       (if (or (contains? (get board [x y]) \E)
+                               (contains? (get board right) \W))
+                         \|
+                         \#))
+                     \#)))))
+      (println))
+    )
+  world)
+
+(defn day20-1 [regex]
+  (let [z (zip/zipper :children
+                      (comp seq :children)
+                      (fn [node children]
+                        (assoc node :children children))
+                      {:dir nil
+                       :children []})
+
+        to-begin-of-branch (fn [z]
+                             (->> z
+                                  (iterate zip/up)
+                                  (some (fn [z]
+                                          (when (not (:tail (zip/node z)))
+                                            z)))))
+        z (reduce
+           (fn [z ch]
+             (cond
+               (= ch \^)
+               z
+
+               (contains? (set "NWES") ch)
+               (if (seq (:children (zip/node z)))
+                 (-> z
+                     (zip/insert-child {:dir (str ch)
+                                        :tail true
+                                        :children []})
+                     zip/down)
+                 (zip/edit z update :dir str ch))
+
+               ;; always a char before and after
+               (= ch \()
+               (-> z
+                   (zip/insert-child {:dir nil
+                                      :children []})
+                   zip/down)
+
+               ;; |))) - )))|
+               (= ch \))
+               (if (:dir (zip/node z))
+                 (-> z
+                     to-begin-of-branch
+                     zip/up)
+                 ;; ) after |
+                 (zip/remove z))
+
+               (= ch \|)
+               (-> z
+                   to-begin-of-branch
+                   (zip/insert-left {:dir nil
+                                     :children []})
+                   (zip/left))
+
+               (= ch \$)
+               (zip/root z)
+
+               (= ch \newline)
+               z))
+           z
+           regex)
+
+        dir-step {\E [1 0]
+                  \N [0 -1]
+                  \W [-1 0]
+                  \S [0 1]}
+        
+        board (->> [[[z [0 0]]] {}]
+                   (iterate (fn [[todo board]]
+                              (let [[tree at] (first todo)
+                                    ch (first (:dir tree))
+
+                                    atx (get dir-step ch)
+                                    next-at (mapv + at atx)
+                                    board (update board at (fnil conj #{}) ch)
+                                    tree-leftover (when (next (:dir tree))
+                                                    (update tree :dir subs 1))
+                                    todo (if tree-leftover
+                                           (conj (rest todo)
+                                                 [tree-leftover next-at])
+                                           (into (rest todo)
+                                                 (map (fn [child]
+                                                        [child next-at])
+                                                      (:children tree))))]
+
+                                [todo board])))
+                   (some (fn [[z board]]
+                           (when (not (seq z))
+                             board))))
+
+        dir-board (into {}
+                        (for [[[x y] dirs] board]
+                          [[x y] (into #{}
+                                       (map (fn [ch]
+                                              (mapv +
+                                                    (get dir-step ch)
+                                                    [x y])))
+                                       dirs)]))
+
+        [furthest-door door-two] (reduce
+                                  (fn [{:keys [seen-xy-n active]} door-n]
+                                    (if (seq active)
+                                      (let [seen-xy-n (into seen-xy-n
+                                                            (map (fn [xy]
+                                                                   [xy door-n]))
+                                                            active)
+                                            active (into #{}
+                                                         (comp (mapcat (fn [[x y]]
+                                                                         (let [neighbours (get dir-board [x y])]
+                                                                           neighbours)))
+                                                               (remove seen-xy-n))
+                                                         active)]
+                                        {:seen-xy-n seen-xy-n
+                                         :active active})
+                                      (let [furthest-door (dec door-n)
+                                            far (count (filter (fn [[xy n]]
+                                                                 (<= 1000 n))
+                                                               seen-xy-n))]
+                                        (reduced [furthest-door
+                                                  far]))))
+                                  {:seen-xy-n {}
+                                   :active [[0 0]]}
+                                  (range))]
+    {:z z
+     :board board
+     :dir-board dir-board
+     :door furthest-door
+     :door-two door-two}))
+
+
+(comment
+  (-> (day20-1 "^ENWWWS$")
+      print-day20)
+
+  (-> (day20-1 "^WNE$")
+      print-day20)
+  
+  (-> (day20-1 "^ENWWW(NEEE|S)$")
+      print-day20)
+
+  (-> (day20-1 "^ENWWW(NEEE|SSE(EE|N))$")
+      print-day20)
+  ;; 10 doors
+  ;; #########
+  ;; #.|.|.|.#
+  ;; #-#######
+  ;; #.|.|.|.#
+  ;; #-#####-#
+  ;; #.#.#X|.#
+  ;; #-#-#####
+  ;; #.|.|.|.#
+  ;; #########
+
+  (-> (day20-1 "^ENNWSWW(NEWS|)SSSEEN(WNSE|)EE(SWEN|)NNN$")
+      print-day20)
+  ;; 18 doors
+  ;; ###########
+  ;; #.|.#.|.#.#
+  ;; #-###-#-#-#
+  ;; #.|.|.#.#.#
+  ;; #-#####-#-#
+  ;; #.#.#X|.#.#
+  ;; #-#-#####-#
+  ;; #.#.|.|.|.#
+  ;; #-###-###-#
+  ;; #.|.|.#.|.#
+  ;; ###########
+
+
+  (-> (day20-1
+       ;;"^ESSWWN(E|NNENN)$"
+       "^ESSWWN(E|NNENN(EESS(WNSE|)SSS|WWWSSSSE(SW|NNNE)))$"
+       )
+      print-day20)
+  ;; Furthest room requires passing 23 doors
+
+  ;; #############
+  ;; #.|.|.|.|.|.#
+  ;; #-#####-###-#
+  ;; #.#.|.#.#.#.#
+  ;; #-#-###-#-#-#
+  ;; #.#.#.|.#.|.#
+  ;; #-#-#-#####-#
+  ;; #.#.#.#X|.#.#
+  ;; #-#-#-###-#-#
+  ;; #.|.#.|.#.#.#
+  ;; ###-#-###-#-#
+  ;; #.|.#.|.|.#.#
+  ;; #############
+
+
+  (-> (day20-1 "^WSSEESWWWNW(S|NENNEEEENN(ESSSSW(NWSW|SSEN)|WSWWN(E|WWS(E|SS))))$")
+      print-day20)
+  ;; Furthest room requires passing 31 doors
+
+  ;; ###############
+  ;; #.|.|.|.#.|.|.#
+  ;; #-###-###-#-#-#
+  ;; #.|.#.|.|.#.#.#
+  ;; #-#########-#-#
+  ;; #.#.|.|.|.|.#.#
+  ;; #-#-#########-#
+  ;; #.#.#.|X#.|.#.#
+  ;; ###-#-###-#-#-#
+  ;; #.|.#.#.|.#.|.#
+  ;; #-###-#####-###
+  ;; #.|.#.|.|.#.#.#
+  ;; #-#-#####-#-#-#
+  ;; #.#.|.|.|.#.|.#
+  ;; ###############
+  
+  (-> (day20-1 "^ENWWW(NEEE)$")
+      print-day20)
+
+  (-> (day20-1 "^EN$")
+      print-day20)
+  
+  (-> (day20-1 "^ENWWW$")
+      print-day20)
+
+  (-> (day20-1 "^E(S|W)$")
+      print-day20)
+
+  (-> (day20-1
+       "^N(WW|EE(SWEN|)NNNN(ESSNNW|)WW(SE|NENW))$")
+      print-day20)
+
+
+  (-> (day20-1 "^EE(NNEESSSSW(SS|WW|NN|)WWWNNNNEE(N|))$")
+      print-day20)
+
+  (-> (day20-1 "^EE(NNEESSSSW(SS|WW|NN|)WWWNNNNEE(N|))$")
+      print-day20)
+
+
+  (let [res (day20-1
+             (slurp (io/resource "day20.txt")))]
+    (println "door" (:door res) " door-two" (:door-two res))
+    (spit "day20.txt"
+          (with-out-str (print-day20 res))))
   )
