@@ -250,3 +250,345 @@
   (day22-2 6084
            [14 709])
   )
+
+
+(defn print-day23 [world]
+  )
+
+
+(defn day23-1 [in]
+  (let [bots (into {}
+                   (map-indexed (fn [id line]
+                                  (let [[_ x y z r] (re-find #"pos=<(-?\d+),(-?\d+),(-?\d+)>, r=(\d+)" line)
+                                        [x y z r] (map #(Long/parseLong %) [x y z r])]
+                                    [id [x y z r]])))
+                   (xio/lines-in (core/string-in in)))
+
+        powerest (apply max-key (fn [[id [x y z r]]] r) bots)
+
+        reachable (fn [[fid [^long fx ^long fy ^long fz ^long fr]]
+                       [tid [^long tx ^long ty ^long tz _]]]
+                    (let [dist (+ (Math/abs (- fx tx))
+                                  (Math/abs (- fy ty))
+                                  (Math/abs (- fz tz)))]
+                      (println "dist" [])
+                      (<= dist fr)))
+        
+        in-reach (for [bot bots
+                       :when (reachable powerest bot)]
+                   bot)]
+    (count in-reach)))
+
+#_(defn day23-2 [in]
+  (let [bots (into {}
+                   (map-indexed (fn [id line]
+                                  (let [[_ x y z r] (re-find #"pos=<(-?\d+),(-?\d+),(-?\d+)>, r=(\d+)" line)
+                                        [x y z r] (map #(Long/parseLong %) [x y z r])]
+                                    [id [x y z r]])))
+                   (xio/lines-in (core/string-in in)))
+
+        powerest (apply max-key (fn [[id [x y z r]]] r) bots)
+
+        overlap (fn [[fid [^long fx ^long fy ^long fz ^long fr]]
+                     [tid [^long tx ^long ty ^long tz ^long tr]]]
+                  (let [dist (+ (Math/abs (- fx tx))
+                                (Math/abs (- fy ty))
+                                (Math/abs (- fz tz)))
+                        max-dist (+ fr tr)]
+                    (<= dist max-dist)))
+        pairs (into {}
+                    (x/by-key first
+                              second
+                              (x/into []))
+                    (for [[from & others] (->> (iterate rest bots)
+                                               (take-while seq))
+                          other others
+                          :when (overlap from other)]
+                      [from other]))
+        combos (loop [combos []
+                      expand (mapv (fn [bot]
+                                     [bot])
+                                   bots)]
+                 (if-not (seq expand)
+                   combos
+                   (let [e (first expand)
+                         from (peek e)
+                         add (get pairs from)]
+                     
+                     (println "e" e "add" add)
+                     (if (seq add)
+                       (recur combos
+                              (into (rest expand)
+                                    (keep
+                                     (fn [add-one]
+                                       (when (every? (fn [from]
+                                                       (overlap from add-one)) e)
+                                         (println "extend yes")
+                                         (conj e add-one)))
+                                     add)))
+                       (recur (conj combos e)
+                              (rest expand))))))
+        most-combo (apply max-key count combos)]
+    (def combos combos)
+    (def pairs pairs)
+    most-combo
+    ;;combos
+    ))
+
+;; h/t https://www.reddit.com/r/adventofcode/comments/a8s17l/2018_day_23_solutions/ecdqzdg/
+
+(defn day23-2 [in]
+  (let [bots (into {}
+                   (map-indexed (fn [id line]
+                                  (let [[_ x y z r] (re-find #"pos=<(-?\d+),(-?\d+),(-?\d+)>, r=(\d+)" line)
+                                        [x y z r] (map #(Long/parseLong %) [x y z r])]
+                                    [id [x y z r]])))
+                   (xio/lines-in (core/string-in in)))
+
+        q (into (sorted-map) ;; store dups by adding id to key
+                (mapcat (fn [[id [x y z r]]]
+                          (let [d (+ (Math/abs ^long x)
+                                     (Math/abs ^long y)
+                                     (Math/abs ^long z))]
+                            [[[(max 0 (- d r)) id] 1]
+                             [[(+ d r) id] -1]])))
+                bots)
+
+        res (->> (reductions
+                  (fn [[c _dist] [[dist id] e]]
+                    [(+ c e) dist])
+                  [0 nil]
+                  q)
+                 rest
+                 (apply max-key first)
+                 second)]
+    res))
+
+(comment
+  
+(day23-1 "pos=<0,0,0>, r=4
+pos=<1,0,0>, r=1
+pos=<4,0,0>, r=3
+pos=<0,2,0>, r=1
+pos=<0,5,0>, r=3
+pos=<0,0,3>, r=1
+pos=<1,1,1>, r=1
+pos=<1,1,2>, r=1
+pos=<1,3,1>, r=1")
+
+
+(day23-2 "pos=<10,12,12>, r=2
+pos=<12,14,12>, r=2
+pos=<16,12,12>, r=4
+pos=<14,14,14>, r=6
+pos=<50,50,50>, r=200
+pos=<10,10,10>, r=5")
+
+combos
+pairs
+
+;; 12,12,12 -> 36
+
+(day23-1 (io/resource "day23.txt"))
+
+(day23-2 (io/resource "day23.txt"))
+
+  )
+
+(defn day24-1 [in]
+  (let [lines (into []
+                    (xio/lines-in (core/string-in in)))
+        line-group (->> (reduce
+                         (fn [{:keys [group lines id]} ^String line]
+                           (cond
+                             (.startsWith line "Immune System")
+                             {:group :immune
+                              :id 1
+                              :lines lines}
+                             (.startsWith line "Infection")
+                             {:group :infection
+                              :id 1
+                              :lines lines}
+                             (str/blank? line)
+                             {:group group
+                              :lines lines}
+                             true
+                             {:group group
+                              :id (inc id)
+                              :lines (conj lines {:group group
+                                                  :id id
+                                                  :line line})}
+                             ))
+                         {:group nil
+                          :lines []}
+                         lines)
+                        :lines)
+        groups (mapv
+                (fn [lg]
+                  (let [[units _units _each _with hitpoints _hit _points & tail] (str/split (:line lg) #" ")
+                        [units hitpoints] (map #(Long/parseLong %) [units hitpoints])
+                        {:keys [immune weak]} (when-let [[_ spec] (re-find #"\(([^\)]*)\)" (:line lg))]
+                                                (into {}
+                                                      (for [piece (str/split spec #"; ")]
+                                                        (let [[type _to & etc] (str/split piece #" ")
+                                                              props (str/split (apply str etc) #",")]
+                                                          [(keyword type) (set (mapv keyword props))]))))
+                        attack (subs (:line lg) (.indexOf ^String (:line lg) "attack"))
+                        [_attack _that _does damage-n damage-type _damage _at _initiative initiative] (str/split attack #" ")
+                        damage (Long/parseLong damage-n)
+                        damage-type (keyword damage-type)
+                        initiative (Long/parseLong initiative)]
+                    (-> lg
+                        (dissoc :line)
+                        (assoc :units units
+                               :hitpoints hitpoints
+                               :weak weak
+                               :immune immune
+                               :damage damage
+                               :damage-type damage-type
+                               :initiative initiative
+                               ))))
+                line-group)
+
+        select-power-key (fn [{:keys [units damage initiative]}]
+                           [(* units damage) initiative])
+
+        effective-damage (fn [attacker-group opponent-group]
+                           (let [attacker-type (:damage-type attacker-group)
+                                 eff-power (* (:units attacker-group)
+                                              (:damage attacker-group))]
+                             (cond
+                               (contains? (:weak opponent-group) attacker-type)
+                               (* eff-power 2)
+                               (contains? (:immune opponent-group) attacker-type)
+                               0
+                               true
+                               eff-power)))
+
+        fight (fn [groups]
+                (let [order (into (sorted-set-by (fn [l r]
+                                                   (* -1 ;; highest to lowest
+                                                      (compare  (select-power-key l)
+                                                                (select-power-key r)))))
+                                  groups)
+
+                      target-selection (-> (reduce
+                                            (fn [[attack defend] attacker]
+                                              (let [{attacker-group :group
+                                                     attacker-type :damage-type} attacker
+                                                    opponent (x/some
+                                                              (comp (x/maximum (fn [l r]
+                                                                                 (compare (first l)
+                                                                                          (first r))))
+                                                                    (map second))
+                                                              (for [g groups
+                                                                    :when (not= attacker-group
+                                                                                (:group g))
+                                                                    :when (not (contains? defend [(:group g) (:id g)]))
+                                                                    :let [eff-damage (effective-damage attacker g)]
+                                                                    :when (pos? eff-damage)]
+                                                                (let [defence-eff-damage (* (:units g)
+                                                                                            (:damage g))]
+                                                                  [[eff-damage
+                                                                    defence-eff-damage
+                                                                    (:initiative g)] g])))]
+                                                (if opponent
+                                                  [(assoc attack [attacker-group (:id attacker)] [(:group opponent) (:id opponent)])
+                                                   (conj defend [(:group opponent) (:id opponent)])]
+                                                  [attack defend])))
+                                            [{} #{}]
+                                            order)
+                                           first)
+
+                      groups-by-id (zipmap (map (juxt :group :id) groups)
+                                           groups)
+
+                      attack-order (-> (into (sorted-map)
+                                             (x/by-key (comp #(* -1 %) :initiative)
+                                                       (map (juxt :group :id)))
+                                             groups)
+                                       vals)
+
+                      deal-attack (reduce
+                                   (fn [groups-by-id gid]
+                                     (let [attack-group (get groups-by-id gid)
+                                           opponent-gid (get target-selection gid)
+                                           opponent (get groups-by-id opponent-gid)]
+                                       (if (not (and attack-group opponent))
+                                         groups-by-id
+                                         (let [total-damage (effective-damage attack-group opponent)
+                                               kill (min (long (Math/floor (/ total-damage
+                                                                              (:hitpoints opponent))))
+                                                         (:units opponent))
+                                               rem-units (- (:units opponent)
+                                                            kill)
+                                               dead (= 0 rem-units)]
+                                           (if dead
+                                             (dissoc groups-by-id opponent-gid)
+                                             (assoc-in groups-by-id [opponent-gid :units] rem-units))))))
+                                   groups-by-id
+                                   attack-order)
+
+                      groups (vals deal-attack)]
+                  groups))
+
+        #_part1 #_(->> groups
+                       (iterate fight)
+                       (some (fn [groups]
+                               (let [[ac bc] (->> (into {}
+                                                        (x/by-key :group
+                                                                  :units
+                                                                  (x/reduce +))
+                                                        groups)
+                                                  vals)]
+                                 (println "found end: " ac bc)
+                                 (if (not ac)
+                                   bc
+                                   (if (not bc)
+                                     ac
+                                     nil))))))
+
+        part2 (reduce
+               (fn [_ boost]
+                 (let [groups (mapv (fn [g]
+                                      (if (= (:group g) :immune)
+                                        (update g :damage + boost)
+                                        g))
+                                    groups)]
+                   (->> groups
+                        (iterate fight)
+                        (partition 2 1)
+                        (some (fn [[l r]]
+                                (if (= l r)
+                                  ;; invinsible immune system, continue
+                                  :continue
+                                  (let [groups r
+                                        {:keys [immune infection]} (into {}
+                                                                         (x/by-key :group
+                                                                                   :units
+                                                                                   (x/reduce +))
+                                                                         groups)]
+                                    (if (and immune
+                                             (not infection))
+                                      (reduced {:boost boost
+                                                :immune immune})
+                                      (if (not immune)
+                                        :try-next
+                                        nil)))))))))
+               nil
+               (range))
+        ]
+    part2))
+
+(comment
+  (day24-1 "Immune System:
+17 units each with 5390 hit points (weak to radiation, bludgeoning) with an attack that does 4507 fire damage at initiative 2
+989 units each with 1274 hit points (immune to fire; weak to bludgeoning, slashing) with an attack that does 25 slashing damage at initiative 3
+
+Infection:
+801 units each with 4706 hit points (weak to radiation) with an attack that does 116 bludgeoning damage at initiative 1
+4485 units each with 2961 hit points (immune to radiation; weak to fire, cold) with an attack that does 12 slashing damage at initiative 4")
+
+  (day24-1 (io/resource "day24.txt"))
+
+  )
