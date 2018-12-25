@@ -3,6 +3,7 @@
             [advent2018.core2 :as core2]
             [clojure.java.io :as io]
             [clojure.string :as str]
+            [clojure.test :as test]
             [net.cgrand.xforms :as x]
             [net.cgrand.xforms.io :as xio]
             [net.cgrand.xforms.rfs :as xrf]))
@@ -591,4 +592,106 @@ Infection:
 
   (day24-1 (io/resource "day24.txt"))
 
+  )
+
+
+(defn day25 [in]
+  (let [stars (into []
+                    (map (fn [line]
+                           (let [[a b c d] (-> line
+                                               (str/trim)
+                                               (str/split #",")
+                                               (->> (map #(Long/parseLong %))))]
+                             [a b c d])))
+                    (xio/lines-in (core/string-in in)))
+
+        reachable (fn [[^long la ^long lb ^long lc ^long ld]
+                       [^long ra ^long rb ^long rc ^long rd]]
+                    (<= (+ (Math/abs (- la ra))
+                           (Math/abs (- lb rb))
+                           (Math/abs (- lc rc))
+                           (Math/abs (- ld rd)))
+                        3))
+
+        consts (reduce
+                (fn [consts star]
+                  (let [join (for [c consts
+                                   s c
+                                   :when (reachable star s)]
+                               c)
+                        rem (reduce
+                             disj
+                             consts
+                             join)
+                        add (reduce
+                             into
+                             #{star}
+                             join)]
+                    (conj rem add)))
+
+                #{}
+                stars)]
+    (count consts)))
+
+
+(test/deftest day25-test
+  (test/are [in out] (= (day25 in) out)
+    "0,0,0,0
+ 3,0,0,0
+ 0,3,0,0
+ 0,0,3,0
+ 0,0,0,3
+ 0,0,0,6
+ 9,0,0,0
+12,0,0,0" 2
+
+    "-1,2,2,0
+0,0,2,-2
+0,0,0,-2
+-1,2,0,0
+-2,-2,-2,2
+3,0,2,-1
+-1,3,2,2
+-1,0,-1,0
+0,2,1,-2
+3,0,0,0" 4
+
+    "1,-1,0,1
+2,0,-1,0
+3,2,-1,0
+0,0,3,1
+0,0,-1,-1
+2,3,-2,0
+-2,2,0,0
+2,-2,0,-1
+1,-1,0,-1
+3,2,0,2" 3
+
+    "1,-1,-1,-2
+-2,-2,0,1
+0,2,1,3
+-2,3,-2,1
+0,2,3,-2
+-1,-1,1,-2
+0,-2,-1,0
+-2,2,3,-1
+1,2,2,0
+-1,-2,0,-2" 8
+    ))
+
+
+(comment
+  (day25-test)
+
+  (day25 "0,0,0,0
+ 3,0,0,0
+ 0,3,0,0
+ 0,0,3,0
+ 0,0,0,3
+ 0,0,0,6
+ 9,0,0,0
+12,0,0,0")
+
+
+  (day25 (io/resource "day25.txt"))
   )
