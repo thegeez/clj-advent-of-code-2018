@@ -695,3 +695,146 @@ Infection:
 
   (day25 (io/resource "day25.txt"))
   )
+
+
+(def dirs
+  {\╠ [[0 -1] [1 0] [0 1]]
+   \╣ [[0 -1] [0 1] [-1 0]]
+   \╦ [[1 0] [0 1] [-1 0]]
+   \╩ [[0 -1] [1 0] [-1 0]]
+   \╬ [[0 -1] [1 0] [0 1] [-1 0]]
+   \═ [[1 0] [-1 0]]
+   \║ [[0 -1] [0 1]]
+   \╔ [[1 0] [0 1]]
+   \╗ [[-1 0] [0 1]]
+   \╚ [[0 -1] [1 0]]
+   \╝ [[0 -1] [-1 0]]})
+
+(defn infi [in]
+  (let [tiles (into {}
+                    (comp (map-indexed (fn [y row]
+                                         (map-indexed (fn [x col]
+                                                        [[x y] col])
+                                                      row)))
+                          cat)
+                    (xio/lines-in (core/string-in in)))
+        goal (x/some
+              (x/transjuxt [(comp (map first) x/max)
+                            (comp (map second) x/max)])
+              (keys tiles))
+
+        start [0 0]
+
+        steps (loop [seen {}
+                     expand [[start 0]]]
+                (if-let [done (get seen goal)]
+                  done
+                  (let [seen (into seen expand)
+                        expand (mapcat
+                                (fn [[[x y :as xy] dist]]
+                                  (let [tile (get tiles xy)]
+                                    (for [[dx dy] (get dirs tile)
+                                          :let [x (+ x dx)
+                                                y (+ y dy)]
+                                          :when (and (<= 0 x (first goal))
+                                                     (<= 0 y (second goal)))
+                                          :let [opposite (get tiles [x y])
+                                                opp-dirs (get dirs opposite)]
+                                          :when (some (fn [od]
+                                                        (= [dx dy] (mapv #(* -1 %) od)))
+                                                      opp-dirs)
+                                          :when (not (contains? seen [x y]))]
+                                      [[x y] (inc dist)])))
+                                expand)]
+                    (recur seen
+                           expand))))]
+    steps))
+
+(defn infi2 [in]
+  (let [tiles (into {}
+                    (comp (map-indexed (fn [y row]
+                                         (map-indexed (fn [x col]
+                                                        [[x y] col])
+                                                      row)))
+                          cat)
+                    (xio/lines-in (core/string-in in)))
+        goal (x/some
+              (x/transjuxt [(comp (map first) x/max)
+                            (comp (map second) x/max)])
+              (keys tiles))
+
+        wrap (inc (first goal))
+
+        start [0 0]
+
+
+        shift (fn [[x y] tiles change]
+                (let [row-or-col (mod change wrap)
+                      action (if (even? change)
+                               ;; shift row
+                               (fn [[[fx fy] tile]]
+                                 (if (= fy row-or-col)
+                                   [[(mod (inc fx) wrap) fy] tile]
+                                   [[fx fy] tile]))
+                               ;; shift col
+                               (fn [[[fx fy] tile]]
+                                 (if (= fx row-or-col)
+                                   [[fx (mod (inc fy) wrap)] tile]
+                                   [[fx fy] tile])))
+                      new-tiles (into {}
+                                      (map action)
+                                      tiles)
+                      new-xy (if (= [x y] goal)
+                               [x y]
+                               (if (even? change)
+                                 (if (= y row-or-col)
+                                   [(mod (inc x) wrap) y]
+                                   [x y])
+                                 (if (= x row-or-col)
+                                   [x (mod (inc y) wrap)]
+                                   [x y])))]
+                  [new-xy new-tiles]))
+
+        step (fn [fringe]
+               (let [[dist [x y :as xy] tiles change] (first fringe)
+                     expanded (let [tile (get tiles xy)]
+                                (for [[dx dy] (get dirs tile)
+                                      :let [x (+ x dx)
+                                            y (+ y dy)]
+                                      :when (and (<= 0 x (first goal))
+                                                 (<= 0 y (second goal)))
+                                      :let [opposite (get tiles [x y])
+                                            opp-dirs (get dirs opposite)]
+                                      :when (some (fn [od]
+                                                    (= [dx dy] (mapv #(* -1 %) od)))
+                                                  opp-dirs)]
+                                  (let [[xy tiles] (shift [x y] tiles dist)
+                                        dist (inc dist)]
+                                    [dist xy tiles change])))]
+                 (into (disj fringe (first fringe))
+                       expanded)))
+
+        steps (->> (conj (sorted-set-by (fn [l r]
+                                          (compare [(first l) (second l)]
+                                                   [(first r) (second r)])))
+                         [0 start tiles 0])
+                   (iterate step)
+                   (some (fn [fringe]
+                           (let [first-entry (first fringe)
+                                 [best xy tiles change] first-entry]
+                             (when (= xy goal)
+                               best)))))]
+    steps))
+
+(comment
+  (infi2 (io/resource "infi.txt"))
+
+
+  (infi2
+   "╔═╗║
+╠╗╠║
+╬╬╣╬
+╚╩╩═")
+
+
+  )
